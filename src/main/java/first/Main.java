@@ -10,9 +10,8 @@ package first;
 import org.wpilib.framework.RobotBase;
 
 /**
- * Do NOT add any static variables to this class, or any initialization at all. Unless you know what
- * you are doing, do not modify this file except to change the parameter class to the startRobot
- * call.
+ * Do NOT add any static variables to this class, or any initialization at all. Apart from changing
+ * the parameter class in the startRobot call, this file should not need to change.
  */
 public final class Main {
   private Main() {}
@@ -20,7 +19,7 @@ public final class Main {
   /**
    * Main initialization function. Do not perform any initialization here.
    *
-   * <p>If you change your main robot class, change the parameter type.
+   * <p>If the main robot class changes, change the parameter type to match.
    */
   public static void main(String... args) {
     RobotBase.startRobot(first.robot.Robot::new);

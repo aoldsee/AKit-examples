@@ -13,8 +13,14 @@ import org.littletonrobotics.junction.Logger;
 import org.littletonrobotics.junction.networktables.NT4Publisher;
 import org.littletonrobotics.junction.wpilog.WPILOGReader;
 import org.littletonrobotics.junction.wpilog.WPILOGWriter;
+import org.wpilib.command3.Command;
+import org.wpilib.command3.Scheduler;
 
 public class Robot extends LoggedRobot {
+  private final Scheduler scheduler = Scheduler.getDefault();
+  private final RobotContainer robotContainer;
+  private Command autonomousCommand;
+
   public Robot() {
     // Record metadata
     Logger.recordMetadata("ProjectName", BuildConstants.MAVEN_NAME);
@@ -39,7 +45,8 @@ public class Robot extends LoggedRobot {
         break;
 
       case SIM:
-        // Running a physics simulator, log to NT
+        // Running a physics simulator, log to NT and to "logs/" for later viewing or replay
+        Logger.addDataReceiver(new WPILOGWriter());
         Logger.addDataReceiver(new NT4Publisher());
         break;
 
@@ -54,33 +61,66 @@ public class Robot extends LoggedRobot {
 
     // Start AdvantageKit logger
     Logger.start();
+
+    // After Logger.start() so IO constructed here is recorded from the first cycle.
+    robotContainer = new RobotContainer();
   }
 
-  /** This function is called periodically during all modes. */
+  /**
+   * LoggedRobot calls this every 20 ms in every mode, after the mode-specific init (if the mode
+   * just changed). AdvantageKit records the inputs read here, which is what makes replay possible.
+   */
   @Override
-  public void robotPeriodic() {}
+  public void robotPeriodic() {
+    // Inputs first, so triggers and commands act on this cycle's data.
+    robotContainer.periodic();
+    scheduler.run();
+  }
 
-  /** This function is run once each time the robot enters autonomous mode. */
   @Override
-  public void autonomousInit() {}
+  public void disabledInit() {
+    cancelAutonomous();
+  }
 
-  /** This function is called periodically during autonomous. */
+  // Empty overrides here and below silence WPILib's "override me" console messages. Everything
+  // the robot does each loop runs from robotPeriodic through commands, not per-mode methods.
+  @Override
+  public void disabledPeriodic() {}
+
+  @Override
+  public void simulationPeriodic() {}
+
+  @Override
+  public void autonomousInit() {
+    robotContainer.resetToStartPose();
+    autonomousCommand = robotContainer.getAutonomousCommand();
+    if (autonomousCommand != null) {
+      scheduler.schedule(autonomousCommand);
+    }
+  }
+
   @Override
   public void autonomousPeriodic() {}
 
-  /** This function is called once each time the robot enters teleoperated mode. */
   @Override
-  public void teleopInit() {}
+  public void teleopInit() {
+    cancelAutonomous();
+  }
 
-  /** This function is called periodically during teleoperated mode. */
+  /** Characterization autos run until canceled, so canceling is also what makes them report. */
+  private void cancelAutonomous() {
+    if (autonomousCommand != null) {
+      scheduler.cancel(autonomousCommand);
+      autonomousCommand = null;
+    }
+  }
+
   @Override
   public void teleopPeriodic() {}
 
-  /** This function is called once each time the robot enters utility mode. */
   @Override
   public void utilityInit() {}
 
-  /** This function is called periodically during utility mode. */
   @Override
   public void utilityPeriodic() {}
 }

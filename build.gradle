@@ -20,8 +20,8 @@ deploy {
         systemcore(getTargetTypeClass('SystemCore')) {
             // Team number is loaded either from the .wpilib/wpilib_preferences.json
             // or from command line. If not found an exception will be thrown.
-            // You can use getTeamOrDefault(team) instead of getTeamNumber if you
-            // want to store a team number in this file.
+            // getTeamOrDefault(team) instead of getTeamNumber stores a team number in
+            // this file.
             team = project.wpilib.getTeamNumber()
             // Use the default systemcore host name. This must be called after setting team
             // as happens on the line above
@@ -42,7 +42,7 @@ deploy {
                     files = project.fileTree('src/main/deploy')
                     directory = '/home/systemcore/deploy'
                     deleteOldFiles = false // Change to true to delete files on systemcore that no
-                                           // longer exist in deploy directory of this project
+                    // longer exist in deploy directory of this project
                 }
             }
         }
@@ -91,9 +91,32 @@ dependencies {
     annotationProcessor "org.littletonrobotics.akit:akit-autolog:$akitJson.version"
 }
 
+// Two kinds of tests live in src/test:
+//   - Unit tests swap in fake IO and check logic in milliseconds.
+//   - Simulation tests, tagged "sim", run the real robot code against Phoenix sim in real time.
+// `./gradlew unitTest` runs only the fast ones; `./gradlew test` runs everything. `build` runs
+// neither, to keep builds quick.
 test {
     useJUnitPlatform()
     systemProperty 'junit.jupiter.extensions.autodetection.enabled', 'true'
+    // Each test class gets a fresh JVM, so device handles, alerts, and the command scheduler from
+    // one class can't leak into the next.
+    forkEvery = 1
+    onlyIf {
+        gradle.startParameter.taskNames.any { ['test', 'check'].contains(it.tokenize(':').last()) }
+    }
+}
+
+task(unitTest, type: Test) {
+    description = 'Runs the fast unit tests, skipping the real-time simulation tests.'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform {
+        excludeTags 'sim'
+    }
+    systemProperty 'junit.jupiter.extensions.autodetection.enabled', 'true'
+    forkEvery = 1
 }
 
 // Simulation configuration (e.g. environment variables).
@@ -109,6 +132,7 @@ application.mainClass = ROBOT_MAIN_CLASS
 deployArtifact.configureApplication(application)
 wpi.java.configureApplication(application)
 wpi.java.configureTestTasks(test)
+wpi.java.configureTestTasks(unitTest)
 
 jar {
     from('src') { into 'backup/src' }
@@ -193,7 +217,8 @@ spotless {
     json {
         target fileTree(".") {
             include "**/*.json"
-            exclude "**/build/**", "**/build-*/**", ".wpilib/**"
+            // The Sim GUI rewrites its own simgui*.json files; reformatting them just churns git.
+            exclude "**/build/**", "**/build-*/**", ".wpilib/**", "simgui*.json"
         }
         gson().indentWithSpaces(2)
     }

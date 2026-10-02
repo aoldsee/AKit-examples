@@ -1,7 +1,6 @@
-package first.robot.commands;
+package first.robot.field;
 
 import first.robot.subsystems.drive.DriveConstants;
-import first.robot.util.FieldGeometry;
 import java.util.Optional;
 import org.wpilib.fields.FieldTag;
 import org.wpilib.math.geometry.Pose2d;
@@ -34,8 +33,8 @@ public final class AlignTargets {
 
   /**
    * Close enough to the target, pointed the right way, and nearly stopped. DriveToPose finishes on
-   * this, and the driver's controller rumbles on it, so both always agree on what "lined up" means.
-   * Without the speed check, a robot passing through the target at speed would count as arrived.
+   * this. Without the speed check, a robot passing through the target at speed would count as
+   * arrived.
    */
   public static boolean isAligned(Pose2d robot, ChassisVelocities velocities, Pose2d target) {
     double distance = robot.getTranslation().getDistance(target.getTranslation());
@@ -44,6 +43,14 @@ public final class AlignTargets {
     return distance < DriveConstants.ALIGN_DISTANCE_TOLERANCE
         && Math.abs(angleError) < DriveConstants.ALIGN_ANGLE_TOLERANCE
         && speed < DriveConstants.ALIGN_SETTLED_SPEED;
+  }
+
+  /**
+   * The nearest tag's alignment pose, or {@code robot} itself if no tag qualifies, so driving there
+   * means staying put.
+   */
+  public static Pose2d nearestTagOrCurrent(Pose2d robot) {
+    return nearestTag(robot).orElse(robot);
   }
 
   /** The alignment pose for the nearest tag the robot can actually stand in front of. */

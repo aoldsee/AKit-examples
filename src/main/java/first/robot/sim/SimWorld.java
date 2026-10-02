@@ -1,6 +1,5 @@
 package first.robot.sim;
 
-import first.robot.util.Battery;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -32,6 +31,13 @@ import org.wpilib.util.Alert.Level;
 public final class SimWorld implements AutoCloseable {
   // 250 Hz matches the drive's odometry rate, so every odometry sample sees fresh physics.
   private static final double PERIOD_SECS = 0.004;
+  // The models are stepped with simple "speed times time" math, which goes unstable if one step is
+  // too long (the drive's tire grip is the touchiest, at about 30 ms). A late step is split into
+  // pieces no longer than this.
+  private static final double MAX_STEP_SECS = 0.005;
+  // A pause longer than this (a debugger breakpoint, a long garbage collection) is skipped instead
+  // of simulated: the robot freezes for the pause, like the code did.
+  private static final double MAX_CATCH_UP_SECS = 0.1;
   // Fraction of the way to the new battery voltage per step: about a 15 ms time constant.
   private static final double VOLTAGE_RESPONSE = 0.25;
 
@@ -90,9 +96,16 @@ public final class SimWorld implements AutoCloseable {
   private void step() {
     // Notifier jitter is a few hundred microseconds, so integrate over measured time.
     double now = Timer.getMonotonicTimestamp();
-    double dt = now - lastTimeSecs;
+    double elapsed = Math.min(now - lastTimeSecs, MAX_CATCH_UP_SECS);
     lastTimeSecs = now;
 
+    int pieces = (int) Math.ceil(elapsed / MAX_STEP_SECS);
+    for (int i = 0; i < pieces; i++) {
+      stepPhysics(elapsed / pieces);
+    }
+  }
+
+  private void stepPhysics(double dt) {
     double total = Battery.BASE_LOAD_AMPS;
     for (var entry : mechanisms) {
       double amps = entry.mechanism().update(dt, batteryVolts);
@@ -110,8 +123,9 @@ public final class SimWorld implements AutoCloseable {
     // Motor controllers pull more current when the voltage drops, so jumping straight to the new
     // voltage overshoots and the sim rings back and forth. Moving part of the way each step
     // settles on the right voltage instead, or keeps falling if the demand is more than the
-    // battery can ever supply (see Battery.MAX_POWER_WATTS). Real controllers smooth it the same
-    // way, with the capacitors on their inputs.
+    // battery can ever supply (see Battery.MAX_POWER_WATTS). This smoothing is a trick to keep the
+    // math stable, not physics. Its side effect: spikes shorter than about 15 ms come out smaller
+    // than they really are, so read sim brownout margins as a little optimistic.
     double target = battery.getLoadedVoltage(total);
     batteryVolts += VOLTAGE_RESPONSE * (target - batteryVolts);
     RoboRioSim.setVInVoltage(batteryVolts);

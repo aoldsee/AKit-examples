@@ -1,4 +1,4 @@
-package first.robot.util;
+package first.robot.field;
 
 import first.robot.subsystems.drive.DriveConstants;
 import org.wpilib.driverstation.Alliance;
@@ -17,8 +17,8 @@ import org.wpilib.math.geometry.Translation2d;
  * the alliance: a red robot at its own wall has an x near the field length. So positions here are
  * written once, from blue's side, and {@link #flipIfRed} moves them to red's side when needed.
  *
- * <p>Everything that depends on where the origin is lives in this file. 2027 will change where the
- * origin is, so this file will need to change..
+ * <p>Everything that depends on where the origin is lives in this file. If a future season moves
+ * the origin (to field center, say), this is the file to change.
  */
 public final class FieldGeometry {
   private FieldGeometry() {}
@@ -61,6 +61,14 @@ public final class FieldGeometry {
   /** True when the Driver Station says we're red. Unknown counts as blue. */
   public static boolean isRed() {
     return MatchState.getAlliance().orElse(Alliance.BLUE) == Alliance.RED;
+  }
+
+  /**
+   * The heading that faces away from our drivers, toward the other alliance: 0 degrees on blue, 180
+   * on red.
+   */
+  public static Rotation2d downfield() {
+    return isRed() ? Rotation2d.k180deg : Rotation2d.ZERO;
   }
 
   /**

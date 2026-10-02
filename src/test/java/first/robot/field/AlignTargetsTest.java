@@ -1,4 +1,4 @@
-package first.robot.commands;
+package first.robot.field;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;

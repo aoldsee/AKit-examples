@@ -3,8 +3,8 @@ package first.robot.subsystems.vision;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import first.robot.field.FieldGeometry;
 import first.robot.subsystems.vision.VisionIO.PoseObservation;
-import first.robot.util.FieldGeometry;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.BeforeAll;
@@ -119,6 +119,20 @@ class VisionTest {
         Vision.RejectReason.TOO_FAR,
         Vision.rejectReason(
             observation(MID_X, MID_Y, 0.0, 1, VisionConstants.MAX_TAG_DISTANCE_METERS + 0.5), 0.0));
+  }
+
+  @Test
+  void spinningMeansLessTrust() {
+    // One tag at 2 m, turning one radian per second.
+    yawVelocity = 1.0;
+    feed(observation(MID_X, MID_Y, 0.0, 1, 2.0));
+
+    // The usual baseline * distance^2 / tags, plus distance * spin rate * heading delay.
+    assertEquals(
+        VisionConstants.LINEAR_STD_DEV_BASELINE * 4
+            + 2.0 * 1.0 * VisionConstants.MEGATAG2_HEADING_DELAY_SECS,
+        sent.get(0).stdDevs().get(0, 0),
+        1e-9);
   }
 
   @Test

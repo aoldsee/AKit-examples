@@ -14,6 +14,8 @@ import org.wpilib.system.Timer;
  * target, as fast as the limit allows.
  *
  * <p>Slowing down gets its own, usually higher, limit so the driver can always stop quickly.
+ * "Slowing down" here means any change that pushes against the current motion, so a sharp turn at
+ * the same speed counts too.
  */
 public class VectorRateLimiter {
   private final DoubleSupplier maxAccel;
@@ -48,7 +50,7 @@ public class VectorRateLimiter {
 
     var change = input.minus(last);
     // Braking is any change that points against the current motion, including the first half of a
-    // reversal
+    // reversal or of a sharp turn.
     boolean slowingDown = change.getX() * last.getX() + change.getY() * last.getY() < 0;
     double maxChange = (slowingDown ? maxDecel : maxAccel).getAsDouble() * dt;
     if (change.getNorm() > maxChange) {

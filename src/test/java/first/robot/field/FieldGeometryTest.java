@@ -1,4 +1,4 @@
-package first.robot.util;
+package first.robot.field;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -6,9 +6,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import first.robot.subsystems.drive.DriveConstants;
 import org.junit.jupiter.api.Test;
+import org.wpilib.hardware.hal.AllianceStationID;
+import org.wpilib.hardware.hal.HAL;
 import org.wpilib.math.geometry.Pose2d;
 import org.wpilib.math.geometry.Rotation2d;
 import org.wpilib.math.geometry.Translation2d;
+import org.wpilib.simulation.DriverStationSim;
 
 /** Field math that every alliance-dependent feature leans on. */
 class FieldGeometryTest {
@@ -69,5 +72,17 @@ class FieldGeometryTest {
     var onPoint = new Pose2d(3.0, 3.0, Rotation2d.fromDegrees(42.0));
     assertEquals(
         42.0, FieldGeometry.headingToward(onPoint, new Translation2d(3.0, 3.0)).getDegrees(), 1e-9);
+  }
+
+  @Test
+  void downfieldFacesAwayFromOurDrivers() {
+    HAL.initialize();
+    DriverStationSim.setAllianceStationId(AllianceStationID.BLUE_1);
+    DriverStationSim.notifyNewData();
+    assertEquals(0.0, FieldGeometry.downfield().getDegrees(), 1e-9);
+
+    DriverStationSim.setAllianceStationId(AllianceStationID.RED_1);
+    DriverStationSim.notifyNewData();
+    assertEquals(180.0, Math.abs(FieldGeometry.downfield().getDegrees()), 1e-9);
   }
 }

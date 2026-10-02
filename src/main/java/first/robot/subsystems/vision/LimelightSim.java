@@ -1,14 +1,16 @@
 package first.robot.subsystems.vision;
 
+import first.robot.field.FieldGeometry;
 import first.robot.sim.SimulatedMechanism;
-import first.robot.util.FieldGeometry;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 import java.util.function.Supplier;
 import org.wpilib.math.geometry.Pose2d;
 import org.wpilib.math.geometry.Pose3d;
+import org.wpilib.math.geometry.Rotation2d;
 import org.wpilib.math.geometry.Transform3d;
+import org.wpilib.math.geometry.Translation2d;
 import org.wpilib.math.interpolation.TimeInterpolatableBuffer;
 import org.wpilib.math.util.Units;
 import org.wpilib.networktables.DoubleArrayPublisher;
@@ -27,6 +29,20 @@ import org.wpilib.system.Timer;
  * shrinks with more tags. Not modeled: motion blur, occlusion, lighting, or wrong tag detections.
  */
 public class LimelightSim implements SimulatedMechanism {
+  // FUDGE: real-world effects this sim leaves out. Both set to "no effect" here.
+
+  // FUDGE: how noisy the simulated camera is, compared with how much Vision trusts it
+  // (VisionConstants.LINEAR_STD_DEV_BASELINE). At 1.0 the trust is exactly right. A real camera
+  // usually isn't that tidy: try 2.0 to see what trusting a camera too much does to the pose.
+  private static final double FUDGE_NOISE_SCALE = 1.0;
+
+  // FUDGE: the chance that a frame is badly wrong, as when a real camera misreads a tag or catches
+  // a reflection. Such a frame lands about a meter from the truth. Try 0.02 to see how much the
+  // filters in Vision let through.
+  private static final double FUDGE_OUTLIER_CHANCE = 0.0;
+
+  private static final double FUDGE_OUTLIER_METERS = 1.0;
+
   // Match the real pipeline's frame rate.
   private static final double FRAME_PERIOD_SECS = 1.0 / 90.0;
   private static final double LATENCY_SECS = 0.025;
@@ -157,21 +173,39 @@ public class LimelightSim implements SimulatedMechanism {
     }
 
     double averageDistance = visible.stream().mapToDouble(VisibleTag::distance).average().orElse(0);
-    // Same model Vision uses to decide how much to trust a result, so the trust is accurate here.
+    // Same model Vision uses to decide how much to trust a result, so the trust is accurate here
+    // (unless FUDGE_NOISE_SCALE says otherwise).
     double stdDev =
         VisionConstants.LINEAR_STD_DEV_BASELINE
             * averageDistance
             * averageDistance
             / visible.size();
 
-    // MegaTag2 takes the heading from the robot instead of the image, so report whatever heading
-    // the robot sent. If it's wrong, the estimate is wrong too, as on a real robot.
+    // MegaTag2 takes the heading from the robot instead of the image. The camera sees which way
+    // the tags are from the robot, and turns that into field directions using the heading it was
+    // sent. A heading off by some angle swings the answer around the tags by that same angle, so
+    // the position comes out wrong by roughly distance * angle (in radians): 2 degrees off at 4 m
+    // is about 14 cm. Reproduce that here, as on a real robot.
     double[] orientation = orientationSubscriber.get();
-    double headingDeg = orientation.length > 0 ? orientation[0] : robot.getRotation().getDegrees();
+    var sentHeading =
+        orientation.length > 0 ? Rotation2d.fromDegrees(orientation[0]) : robot.getRotation();
+    var headingError = sentHeading.minus(robot.getRotation());
+    var tagCenter = Translation2d.ZERO;
+    for (var tag : visible) {
+      var tagPose = FieldGeometry.FIELD.getTagPose(tag.id).orElseThrow();
+      tagCenter = tagCenter.plus(tagPose.toPose2d().getTranslation().div(visible.size()));
+    }
+    var solved = tagCenter.plus(robot.getTranslation().minus(tagCenter).rotateBy(headingError));
 
-    values[0] = robot.getX() + random.nextGaussian() * stdDev;
-    values[1] = robot.getY() + random.nextGaussian() * stdDev;
-    values[5] = headingDeg;
+    stdDev *= FUDGE_NOISE_SCALE;
+    values[0] = solved.getX() + random.nextGaussian() * stdDev;
+    values[1] = solved.getY() + random.nextGaussian() * stdDev;
+    if (random.nextDouble() < FUDGE_OUTLIER_CHANCE) {
+      double direction = random.nextDouble() * 2 * Math.PI;
+      values[0] += FUDGE_OUTLIER_METERS * Math.cos(direction);
+      values[1] += FUDGE_OUTLIER_METERS * Math.sin(direction);
+    }
+    values[5] = sentHeading.getDegrees();
     values[9] = averageDistance;
     for (int i = 0; i < visible.size(); i++) {
       // Only the ID and distance are filled in; VisionIOLimelight doesn't read the rest.

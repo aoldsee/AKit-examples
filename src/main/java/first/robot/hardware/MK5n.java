@@ -1,4 +1,4 @@
-package first.robot.util;
+package first.robot.hardware;
 
 import org.wpilib.math.util.Units;
 

@@ -12,25 +12,25 @@ import org.wpilib.math.util.Units;
 
 /**
  * This class defines the runtime mode used by AdvantageKit. The mode is always "real" when running
- * on a SystemCore. Change the value of "simMode" to switch between "sim" (physics sim) and "replay"
- * (log replay from a file).
+ * on a SystemCore. Change the value of "SIM_MODE" to switch between "sim" (physics sim) and
+ * "replay" (log replay from a file).
  */
 public final class Constants {
-  public static final Mode simMode = Mode.SIM;
-  public static final Mode currentMode = RobotBase.isReal() ? Mode.REAL : simMode;
+  public static final Mode SIM_MODE = Mode.SIM;
+  public static final Mode CURRENT_MODE = RobotBase.isReal() ? Mode.REAL : SIM_MODE;
 
   /**
    * When true, gains wrapped in TunableNumber can be edited live from the dashboard under
    * "/Tuning". Turn it off for competition so nobody can change a gain mid-match by accident.
    */
-  public static final boolean tuningMode = true;
+  public static final boolean TUNING_MODE = true;
 
   /**
    * Everything that moves when the robot drives: frame, mechanisms, bumpers, and battery. 140 lb is
    * about a full-weight competition robot. Weigh the real one; acceleration, current draw, and
    * brownouts in the simulator all scale with it.
    */
-  public static final double robotMassKg = Units.lbsToKilograms(140.0);
+  public static final double ROBOT_MASS_KG = Units.lbsToKilograms(140.0);
 
   public static enum Mode {
     /** Running on a real robot. */

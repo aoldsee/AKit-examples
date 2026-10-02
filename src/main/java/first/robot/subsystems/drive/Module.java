@@ -1,8 +1,5 @@
 package first.robot.subsystems.drive;
 
-import com.ctre.phoenix6.configs.CANcoderConfiguration;
-import com.ctre.phoenix6.configs.TalonFXConfiguration;
-import com.ctre.phoenix6.swerve.SwerveModuleConstants;
 import first.robot.util.MotorFaults;
 import org.littletonrobotics.junction.Logger;
 import org.wpilib.math.geometry.Rotation2d;
@@ -13,11 +10,10 @@ import org.wpilib.util.Alert;
 import org.wpilib.util.Alert.Level;
 
 /** One swerve module. Converts between wheel radians from the IO layer and meters. */
-public class Module {
+class Module {
   private final ModuleIO io;
   private final ModuleIOInputsAutoLogged inputs = new ModuleIOInputsAutoLogged();
   private final int index;
-  private final double wheelRadiusMeters;
 
   private final Alert driveDisconnectedAlert;
   private final Alert turnDisconnectedAlert;
@@ -26,14 +22,9 @@ public class Module {
   private final MotorFaults.Alerts turnFaultAlerts;
   private SwerveModulePosition[] odometryPositions = new SwerveModulePosition[] {};
 
-  public Module(
-      ModuleIO io,
-      int index,
-      SwerveModuleConstants<TalonFXConfiguration, TalonFXConfiguration, CANcoderConfiguration>
-          constants) {
+  public Module(ModuleIO io, int index) {
     this.io = io;
     this.index = index;
-    this.wheelRadiusMeters = constants.WheelRadius;
     driveDisconnectedAlert =
         new Alert(
             "Drive",
@@ -66,7 +57,7 @@ public class Module {
     for (int i = 0; i < sampleCount; i++) {
       odometryPositions[i] =
           new SwerveModulePosition(
-              inputs.odometryDrivePositionsRad[i] * wheelRadiusMeters,
+              inputs.odometryDrivePositionsRad[i] * DriveConstants.WHEEL_RADIUS_METERS,
               inputs.odometryTurnPositions[i]);
     }
 
@@ -85,7 +76,7 @@ public class Module {
    */
   public SwerveModuleVelocity runSetpoint(SwerveModuleVelocity setpoint) {
     var optimized = setpoint.optimize(getAngle()).cosineScale(getAngle());
-    io.setDriveVelocity(optimized.velocity / wheelRadiusMeters);
+    io.setDriveVelocity(optimized.velocity / DriveConstants.WHEEL_RADIUS_METERS);
     io.setTurnPosition(optimized.angle);
     return optimized;
   }
@@ -110,16 +101,21 @@ public class Module {
     io.setTurnOpenLoop(0.0);
   }
 
+  /** The CANcoder's own reading, with the configured offset applied. */
+  Rotation2d getAbsoluteAngle() {
+    return inputs.turnAbsolutePosition;
+  }
+
   public Rotation2d getAngle() {
     return inputs.turnPosition;
   }
 
   public double getPositionMeters() {
-    return inputs.drivePositionRad * wheelRadiusMeters;
+    return inputs.drivePositionRad * DriveConstants.WHEEL_RADIUS_METERS;
   }
 
   public double getVelocityMetersPerSec() {
-    return inputs.driveVelocityRadPerSec * wheelRadiusMeters;
+    return inputs.driveVelocityRadPerSec * DriveConstants.WHEEL_RADIUS_METERS;
   }
 
   public SwerveModulePosition getPosition() {

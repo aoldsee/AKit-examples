@@ -5,7 +5,6 @@ import org.littletonrobotics.junction.AutoLogOutput;
 import org.littletonrobotics.junction.Logger;
 import org.wpilib.command3.Command;
 import org.wpilib.command3.Mechanism;
-import org.wpilib.command3.Trigger;
 import org.wpilib.math.filter.Debouncer;
 import org.wpilib.system.Timer;
 import org.wpilib.util.Alert;
@@ -15,25 +14,29 @@ import org.wpilib.util.Alert.Level;
  * Rollers that pull a game piece in, hold it, and push it back out, with a beam break that says
  * whether a piece is there.
  *
- * <p>Where the arm finishes when it reaches an angle, these commands finish when the sensor
- * changes: {@link #intake} when a piece arrives, {@link #eject} once it's gone. The robot must call
- * {@link #periodic()} every loop before running the scheduler.
+ * <p>Its commands finish when the sensor changes: {@link #intake} when a piece arrives, {@link
+ * #eject} once it's gone. When either finishes, the default command, {@link #hold} (set in
+ * Controls), takes over the rollers again. The robot must call {@link #periodic()} every loop
+ * before running the scheduler.
+ *
+ * <p>{@code run(...)} and {@code runRepeatedly(...)}, used below to build commands, come from the
+ * {@link Mechanism} interface.
  */
 public class Intake implements Mechanism {
   private final IntakeIO io;
+  // Generated at build time from IntakeIO.IntakeIOInputs (see @AutoLog there), so it isn't in
+  // src/. AdvantageKit writes the code that logs every field.
   private final IntakeIOInputsAutoLogged inputs = new IntakeIOInputsAutoLogged();
   private final Alert motorDisconnectedAlert =
       new Alert("Intake", "MotorDisconnected", "Disconnected intake motor.", Level.HIGH);
   private final MotorFaults.Alerts motorFaultAlerts = new MotorFaults.Alerts("Intake", "Intake");
 
-  // The debounce lives here rather than in the IO, so the log keeps the raw sensor reading and
-  // replay re-runs this filter like any other robot logic.
+  // Debouncing ignores a reading until it has held steady for a moment, so a piece bouncing in
+  // the rollers can't flicker hasPiece. It lives here rather than in the IO, so the log keeps the
+  // raw sensor reading and replay re-runs this filter like any other robot logic.
   private final Debouncer sensorDebouncer =
       new Debouncer(IntakeConstants.SENSOR_DEBOUNCE_SECONDS, Debouncer.DebounceType.BOTH);
   private boolean hasPiece = false;
-
-  /** True while a piece is in the intake. Bind to it like a button. */
-  public final Trigger hasPieceTrigger = new Trigger(this::hasPiece);
 
   public Intake(IntakeIO io) {
     this.io = io;
@@ -41,6 +44,8 @@ public class Intake implements Mechanism {
 
   public void periodic() {
     io.updateInputs(inputs);
+    // Normally this logs the inputs. In replay it does the opposite: it fills them in from the log,
+    // so everything below sees exactly what the robot saw in the match.
     Logger.processInputs("Intake", inputs);
     hasPiece = sensorDebouncer.calculate(inputs.sensorBlocked);
     motorDisconnectedAlert.set(!inputs.motorConnected);

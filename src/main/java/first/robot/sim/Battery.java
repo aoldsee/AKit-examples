@@ -1,4 +1,4 @@
-package first.robot.util;
+package first.robot.sim;
 
 /**
  * A simple model of the robot's battery: an ideal voltage source behind a resistor. Every amp the
@@ -34,9 +34,9 @@ public final class Battery {
   /**
    * The most power a full battery can ever deliver, FULL_VOLTS^2 / (4 * RESISTANCE_OHMS), about
    * 2000 W, reached when the voltage has sagged to half. It shrinks as the battery drains. Four
-   * drive motors running flat out can ask for nearly twice that, and then no voltage satisfies
-   * them: it just keeps falling until the robot browns out. A supply current limit keeps the demand
-   * under this ceiling.
+   * drive motors launching hard with no supply limit can ask for several times that, and then no
+   * voltage satisfies them: it just keeps falling until the robot browns out. A supply current
+   * limit keeps the demand under this ceiling.
    */
   public static final double MAX_POWER_WATTS = FULL_VOLTS * FULL_VOLTS / (4 * RESISTANCE_OHMS);
 

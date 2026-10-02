@@ -19,7 +19,7 @@ public class TunableNumber implements DoubleSupplier {
   public TunableNumber(String key, double defaultValue) {
     this.defaultValue = defaultValue;
     dashboardNumber =
-        Constants.tuningMode ? new LoggedNetworkNumber("/Tuning/" + key, defaultValue) : null;
+        Constants.TUNING_MODE ? new LoggedNetworkNumber("/Tuning/" + key, defaultValue) : null;
   }
 
   public double get() {

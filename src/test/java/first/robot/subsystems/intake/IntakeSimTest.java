@@ -27,7 +27,7 @@ class IntakeSimTest {
     HAL.initialize();
     SignalLogger.enableAutoLogging(false);
     simWorld = new SimWorld();
-    intakeSim = new IntakeSim(true);
+    intakeSim = new IntakeSim(IntakeSim.Preload.ONE_PIECE);
     simWorld.add("Intake", intakeSim);
     intake = new Intake(new IntakeIOTalonFXSim(intakeSim));
     intake.setDefaultCommand(intake.hold());

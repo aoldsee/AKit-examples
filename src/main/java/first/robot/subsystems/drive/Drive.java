@@ -25,9 +25,10 @@ import org.wpilib.util.Alert.Level;
  * Swerve drive with high-rate odometry.
  *
  * <p>Odometry works out where the robot is by adding up small wheel movements. The main loop runs
- * every 20 ms, and at 4.5 m/s the robot covers 9 cm in that time. Adding up curved motion in steps
- * that big drifts, so {@link PhoenixOdometryThread} samples the wheels and gyro every 4 ms instead,
- * and each loop this class replays every sample it collected, oldest first.
+ * every 20 ms, and at 4.5 m/s the robot covers 9 cm in that time. A lot can change in 9 cm: the
+ * wheels can turn to a new angle partway through, and readings taken at slightly different times
+ * don't quite agree. So {@link PhoenixOdometryThread} samples the wheels and gyro together every 4
+ * ms instead, and each loop this class replays every sample it collected, oldest first.
  *
  * <p>The samples feed a pose estimator, which blends wheel odometry with vision. Every sample and
  * every camera frame carries the time it was measured, so a camera frame that arrives 50 ms late
@@ -86,7 +87,7 @@ public class Drive implements Mechanism {
     this.gyroIO = gyroIO;
     ModuleIO[] moduleIOs = {flModuleIO, frModuleIO, blModuleIO, brModuleIO};
     for (int i = 0; i < modules.length; i++) {
-      modules[i] = new Module(moduleIOs[i], i, DriveConstants.MODULE_CONSTANTS[i]);
+      modules[i] = new Module(moduleIOs[i], i);
     }
 
     // Starts only if a hardware IO registered signals, so replay never spawns the thread.
@@ -168,23 +169,6 @@ public class Drive implements Mechanism {
     Logger.recordOutput("SwerveStates/SetpointsOptimized", optimized);
   }
 
-  /** Same open-loop output on every drive motor with all modules pointed forward. */
-  public void runCharacterization(double output) {
-    for (var module : modules) {
-      module.runCharacterization(output);
-    }
-  }
-
-  /**
-   * Sends every module the same angle and open-loop drive output, bypassing kinematics (see {@link
-   * Module#runDirect}). Used by the systems check.
-   */
-  public void runDirect(Rotation2d angle, double driveOutput) {
-    for (var module : modules) {
-      module.runDirect(angle, driveOutput);
-    }
-  }
-
   public void stop() {
     runVelocity(new ChassisVelocities());
   }
@@ -230,24 +214,6 @@ public class Drive implements Mechanism {
     return kinematics.toChassisVelocities(getModuleVelocities());
   }
 
-  /** Wheel radians per module, for wheel radius characterization. */
-  public double[] getWheelRadiusCharacterizationPositions() {
-    double[] values = new double[4];
-    for (int i = 0; i < 4; i++) {
-      values[i] = modules[i].getWheelRadiusCharacterizationPosition();
-    }
-    return values;
-  }
-
-  /** Average wheel rotations/s, for feedforward characterization. */
-  public double getFFCharacterizationVelocity() {
-    double output = 0.0;
-    for (var module : modules) {
-      output += module.getFFCharacterizationVelocity() / 4.0;
-    }
-    return output;
-  }
-
   @AutoLogOutput(key = "Odometry/Robot")
   public Pose2d getPose() {
     return poseEstimator.getEstimatedPosition();
@@ -261,9 +227,63 @@ public class Drive implements Mechanism {
     poseEstimator.resetPosition(rawGyroRotation, getModulePositions(), pose);
   }
 
-  /** Timestamp must be in the same timebase as {@link org.wpilib.system.Timer#getTimestamp()}. */
+  /**
+   * The timestamp is when the camera took the picture, in seconds on the robot's clock. Odometry
+   * samples (Timer.getMonotonicTimestamp), camera frames (NetworkTables receive time), and
+   * Timer.getTimestamp all count on that same clock, so they line up. AdvantageKit just freezes
+   * Timer.getTimestamp once per loop, so replay sees the same value.
+   */
   public void addVisionMeasurement(
       Pose2d visionRobotPose, double timestampSeconds, Matrix<N3, N1> visionMeasurementStdDevs) {
     poseEstimator.addVisionMeasurement(visionRobotPose, timestampSeconds, visionMeasurementStdDevs);
+  }
+
+  // The methods below skip normal driving (kinematics, setpoint optimization) or exist only for
+  // measuring the drivetrain. They're package-private, with no "public", so only the
+  // characterization and systems-check commands in this package can call them. Code elsewhere
+  // in the robot can't reach them by accident.
+
+  /** Same open-loop output on every drive motor with all modules pointed forward. */
+  void runCharacterization(double output) {
+    for (var module : modules) {
+      module.runCharacterization(output);
+    }
+  }
+
+  /**
+   * Sends every module the same angle and open-loop drive output, bypassing kinematics (see {@link
+   * Module#runDirect}). Used by the systems check.
+   */
+  void runDirect(Rotation2d angle, double driveOutput) {
+    for (var module : modules) {
+      module.runDirect(angle, driveOutput);
+    }
+  }
+
+  /** Wheel radians per module, for wheel radius characterization. */
+  double[] getWheelRadiusCharacterizationPositions() {
+    double[] values = new double[4];
+    for (int i = 0; i < 4; i++) {
+      values[i] = modules[i].getWheelRadiusCharacterizationPosition();
+    }
+    return values;
+  }
+
+  /** Average wheel rotations/s, for feedforward characterization. */
+  double getFFCharacterizationVelocity() {
+    double output = 0.0;
+    for (var module : modules) {
+      output += module.getFFCharacterizationVelocity() / 4.0;
+    }
+    return output;
+  }
+
+  /** Each module's CANcoder reading, for working out encoder offsets. */
+  Rotation2d[] getModuleAbsoluteAngles() {
+    var angles = new Rotation2d[4];
+    for (int i = 0; i < 4; i++) {
+      angles[i] = modules[i].getAbsoluteAngle();
+    }
+    return angles;
   }
 }

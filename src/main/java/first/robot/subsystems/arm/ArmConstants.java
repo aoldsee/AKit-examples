@@ -1,7 +1,9 @@
 package first.robot.subsystems.arm;
 
 import com.ctre.phoenix6.CANBus;
-import first.robot.util.Motors;
+import com.ctre.phoenix6.signals.InvertedValue;
+import com.ctre.phoenix6.signals.SensorDirectionValue;
+import first.robot.hardware.Motors;
 import org.wpilib.hardware.bus.CANPort;
 import org.wpilib.math.util.Units;
 import org.wpilib.simulation.SingleJointedArmSim;
@@ -22,8 +24,11 @@ public final class ArmConstants {
   public static final CANBus CAN_BUS = new CANBus(CANPort.CAN_S1);
   public static final int MOTOR_ID = 14;
   public static final int ENCODER_ID = 15;
-  public static final boolean MOTOR_INVERTED = false;
-  public static final boolean ENCODER_INVERTED = false;
+  // Which spin direction counts as positive, for the motor and the CANcoder. Positive must raise
+  // the arm.
+  public static final InvertedValue MOTOR_DIRECTION = InvertedValue.CounterClockwise_Positive;
+  public static final SensorDirectionValue ENCODER_DIRECTION =
+      SensorDirectionValue.CounterClockwise_Positive;
 
   /** Rotations. Zero because there's no physical arm to measure. */
   public static final double ENCODER_OFFSET = 0.0;
@@ -63,8 +68,11 @@ public final class ArmConstants {
 
   public static final Motors.Spec MOTOR = Motors.KRAKEN_X60_FOC;
 
-  // Feedforward gains, per arm rotation, worked out from the motor spec and the arm's size so sim
-  // works untuned. A real arm has friction and extra mass these don't know about; characterize it.
+  // Characterization: how the arm responds to voltage, per arm rotation. These are the feedforward
+  // gains, and they're also what ArmSim builds its model from, so after characterizing the real
+  // arm, putting the measured values here makes both the control and the sim match it. Until
+  // then they're worked out from the motor spec and the arm's size. A real arm has friction and
+  // extra mass these don't know about.
   //
   // Holding still, a motor's voltage is current * resistance, and its current is torque / Kt. So
   // "volts for a torque at the arm" is: (arm torque / gear ratio) / Kt * R.
@@ -81,7 +89,7 @@ public final class ArmConstants {
   /** Volts per arm rotation/s^2: torque to accelerate the arm's inertia. */
   public static final double KA = MOI * 2 * Math.PI * VOLTS_PER_ARM_NM;
 
-  /** No friction in the model. A real arm needs a little. */
+  /** No friction in the estimate. A real arm will measure a little. */
   public static final double KS = 0.0;
 
   /** Volts per rotation of error. 1 degree of error gives about 0.14 V. */

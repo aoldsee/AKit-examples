@@ -15,9 +15,7 @@ import com.ctre.phoenix6.hardware.ParentDevice;
 import com.ctre.phoenix6.hardware.TalonFX;
 import com.ctre.phoenix6.signals.FeedbackSensorSourceValue;
 import com.ctre.phoenix6.signals.GravityTypeValue;
-import com.ctre.phoenix6.signals.InvertedValue;
 import com.ctre.phoenix6.signals.NeutralModeValue;
-import com.ctre.phoenix6.signals.SensorDirectionValue;
 import first.robot.util.MotorFaults;
 import org.wpilib.math.filter.Debouncer;
 import org.wpilib.math.util.Units;
@@ -59,18 +57,12 @@ public class ArmIOTalonFX implements ArmIO {
   public ArmIOTalonFX() {
     var encoderConfig = new CANcoderConfiguration();
     encoderConfig.MagnetSensor.MagnetOffset = ArmConstants.ENCODER_OFFSET;
-    encoderConfig.MagnetSensor.SensorDirection =
-        ArmConstants.ENCODER_INVERTED
-            ? SensorDirectionValue.Clockwise_Positive
-            : SensorDirectionValue.CounterClockwise_Positive;
+    encoderConfig.MagnetSensor.SensorDirection = ArmConstants.ENCODER_DIRECTION;
     tryUntilOk(5, () -> encoder.getConfigurator().apply(encoderConfig, 0.25));
 
     var config = new TalonFXConfiguration();
     config.MotorOutput.NeutralMode = NeutralModeValue.Brake;
-    config.MotorOutput.Inverted =
-        ArmConstants.MOTOR_INVERTED
-            ? InvertedValue.Clockwise_Positive
-            : InvertedValue.CounterClockwise_Positive;
+    config.MotorOutput.Inverted = ArmConstants.MOTOR_DIRECTION;
     config.CurrentLimits.StatorCurrentLimit = ArmConstants.STATOR_CURRENT_LIMIT_AMPS;
     config.CurrentLimits.StatorCurrentLimitEnable = true;
 

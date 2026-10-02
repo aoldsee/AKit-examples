@@ -1,6 +1,6 @@
 package first.robot.subsystems.vision;
 
-import first.robot.util.FieldGeometry;
+import first.robot.field.FieldGeometry;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
@@ -48,7 +48,8 @@ public class Vision {
   private final Map<RejectReason, Integer> rejectCounts = new EnumMap<>(RejectReason.class);
 
   /**
-   * @param yawVelocityRadPerSec how fast the robot is turning, from the gyro
+   * @param yawVelocityRadPerSec how fast the robot is turning. Estimates are thrown out while it
+   *     spins fast (see rejectReason)
    */
   public Vision(VisionConsumer consumer, DoubleSupplier yawVelocityRadPerSec, VisionIO... io) {
     this.consumer = consumer;
@@ -105,11 +106,16 @@ public class Vision {
 
         // A standard deviation is roughly how far off this estimate might be. The bigger it is,
         // the less the pose estimator moves toward it. Error grows with distance squared and
-        // shrinks with more tags in view.
+        // shrinks with more tags in view. Spinning adds the stale-heading error on top (see
+        // VisionConstants.MEGATAG2_HEADING_DELAY_SECS).
+        double distance = observation.averageTagDistance();
+        double spinError =
+            distance
+                * Math.abs(yawVelocityRadPerSec.getAsDouble())
+                * VisionConstants.MEGATAG2_HEADING_DELAY_SECS;
         double linearStdDev =
-            VisionConstants.LINEAR_STD_DEV_BASELINE
-                * Math.pow(observation.averageTagDistance(), 2)
-                / observation.tagCount()
+            (VisionConstants.LINEAR_STD_DEV_BASELINE * distance * distance / observation.tagCount()
+                    + spinError)
                 * VisionConstants.CAMERA_STD_DEV_FACTORS[camera];
         // Infinite heading uncertainty: MegaTag2 got its heading from us, so it can't correct it.
         consumer.accept(

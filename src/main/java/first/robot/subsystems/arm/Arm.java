@@ -8,7 +8,6 @@ import org.littletonrobotics.junction.mechanism.LoggedMechanism2d;
 import org.littletonrobotics.junction.mechanism.LoggedMechanismLigament2d;
 import org.wpilib.command3.Command;
 import org.wpilib.command3.Mechanism;
-import org.wpilib.command3.Trigger;
 import org.wpilib.driverstation.RobotState;
 import org.wpilib.math.util.Units;
 import org.wpilib.util.Alert;
@@ -19,12 +18,25 @@ import org.wpilib.util.Color8Bit;
  * A single-jointed arm that moves between angles and holds them against gravity.
  *
  * <p>Commands own the motor output: {@link #goTo} moves to a goal and finishes on arrival, and
- * {@link #hold} (the default command) keeps commanding the last goal. Like {@link
+ * {@link #hold} (the default command, set in Controls) keeps commanding the last goal. Like {@link
  * first.robot.subsystems.drive.Drive}, the robot must call {@link #periodic()} every loop before
  * running the scheduler.
+ *
+ * <p>{@code run(...)} and {@code runRepeatedly(...)}, used below to build commands, come from the
+ * {@link Mechanism} interface.
+ *
+ * <p>The arm's PID doesn't run here. This class decides the goal angle; {@code io.setPosition}
+ * hands it to the motor controller, which runs the control loop itself, a thousand times a second.
+ * See ArmIOTalonFX for its setup and gains.
+ *
+ * <p>Angles are in radians, like most of WPILib's math (a full turn is 2 pi, so 90 degrees is about
+ * 1.57). The arm has two kinds of limit: hard stops are the physical metal it rests against, and
+ * soft limits are a few degrees inside them, where the code stops so the motor never drives into
+ * the metal.
  */
 public class Arm implements Mechanism {
   private final ArmIO io;
+  // Generated at build time from ArmIO.ArmIOInputs (see @AutoLog there), so it isn't in src/.
   private final ArmIOInputsAutoLogged inputs = new ArmIOInputsAutoLogged();
   private final Alert motorDisconnectedAlert =
       new Alert("Arm", "MotorDisconnected", "Disconnected arm motor.", Level.HIGH);
@@ -32,10 +44,12 @@ public class Arm implements Mechanism {
       new Alert("Arm", "EncoderDisconnected", "Disconnected arm encoder.", Level.HIGH);
   private final MotorFaults.Alerts motorFaultAlerts = new MotorFaults.Alerts("Arm", "Arm");
 
-  // NaN until set while disabled (see periodic), so hold() commands nothing before then.
+  // NaN ("not a number") until set while disabled (see periodic), so hold() commands nothing before
+  // then.
   private double goalRad = Double.NaN;
 
-  // Measured arm and goal arm drawn side by side. Origin is the pivot, sized to fit the arm.
+  // Drawing for AdvantageScope's Mechanism tab: the measured arm and the goal arm side by side.
+  // Origin is the pivot, sized to fit the arm.
   private final LoggedMechanism2d mechanism2d = new LoggedMechanism2d(1.2, 1.2);
   private final LoggedMechanismLigament2d measuredLigament =
       mechanism2d
@@ -50,8 +64,7 @@ public class Arm implements Mechanism {
               new LoggedMechanismLigament2d(
                   "Goal", ArmConstants.LENGTH_METERS, 0.0, 2, new Color8Bit(0, 200, 255)));
 
-  // Editable from the dashboard under /Tuning/Arm/ in tuning mode. Try zeroing kG and watch the
-  // arm sag, or raising kP until it overshoots.
+  // Editable from the dashboard under /Tuning/Arm/ in tuning mode.
   private final TunableNumber kP = new TunableNumber("Arm/kP", ArmConstants.GAINS.kP());
   private final TunableNumber kD = new TunableNumber("Arm/kD", ArmConstants.GAINS.kD());
   private final TunableNumber kG = new TunableNumber("Arm/kG", ArmConstants.GAINS.kG());
@@ -61,12 +74,6 @@ public class Arm implements Mechanism {
       new TunableNumber("Arm/Acceleration", ArmConstants.GAINS.acceleration());
   // What the motor controller currently has, so gains are only re-sent when one changes.
   private ArmIO.Gains appliedGains = ArmConstants.GAINS;
-
-  /** True while the arm is within tolerance of its goal. Bind to it like a button. */
-  public final Trigger atGoal = new Trigger(this::isAtGoal);
-
-  /** True while the arm is at or near either hard stop. See {@link #isNearHardStop}. */
-  public final Trigger nearHardStop = new Trigger(this::isNearHardStop);
 
   public Arm(ArmIO io) {
     this.io = io;
@@ -126,9 +133,10 @@ public class Arm implements Mechanism {
               }
               if (goalRad < ArmConstants.SOFT_MIN_ANGLE_RAD
                   || goalRad > ArmConstants.SOFT_MAX_ANGLE_RAD) {
-                // Outside the soft limits means the arm is resting on a hard stop, which gravity
-                // presses it into at both ends. Holding position there would make the Talon drive
-                // it to the soft limit, so the arm would lift every time the robot enabled.
+                // A goal outside the soft limits means the arm was resting on a hard stop when the
+                // robot enabled (see periodic). Commanding that angle would get it clamped to the
+                // soft limit, so the arm would lift a few degrees every time the robot enabled.
+                // Instead, leave the motor off and let the arm keep resting on the stop.
                 io.setVoltage(0.0);
               } else {
                 io.setPosition(goalRad);
@@ -149,7 +157,7 @@ public class Arm implements Mechanism {
   /**
    * At or near either end of travel. Near a stop, the stop takes the arm's weight, and it can't
    * swing far before hitting it. Anywhere in between, only the motor holds it up, so other parts of
-   * the robot use this to go easier on it (see RobotContainer).
+   * the robot use this to go easier on it (see Controls).
    */
   @AutoLogOutput(key = "Arm/NearHardStop")
   public boolean isNearHardStop() {

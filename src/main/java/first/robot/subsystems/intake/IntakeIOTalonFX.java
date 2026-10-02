@@ -8,8 +8,8 @@ import com.ctre.phoenix6.configs.TalonFXConfiguration;
 import com.ctre.phoenix6.controls.VoltageOut;
 import com.ctre.phoenix6.hardware.ParentDevice;
 import com.ctre.phoenix6.hardware.TalonFX;
-import com.ctre.phoenix6.signals.InvertedValue;
 import com.ctre.phoenix6.signals.NeutralModeValue;
+import first.robot.subsystems.intake.IntakeConstants.BeamBreak;
 import first.robot.util.MotorFaults;
 import org.wpilib.hardware.discrete.DigitalInput;
 import org.wpilib.math.filter.Debouncer;
@@ -42,10 +42,7 @@ public class IntakeIOTalonFX implements IntakeIO {
     var config = new TalonFXConfiguration();
     // Coast lets a jammed piece be pulled out by hand while disabled.
     config.MotorOutput.NeutralMode = NeutralModeValue.Coast;
-    config.MotorOutput.Inverted =
-        IntakeConstants.MOTOR_INVERTED
-            ? InvertedValue.Clockwise_Positive
-            : InvertedValue.CounterClockwise_Positive;
+    config.MotorOutput.Inverted = IntakeConstants.MOTOR_DIRECTION;
     // Rollers spend a lot of time stalled against a piece. The limit keeps that from cooking the
     // motor or browning out the robot.
     config.CurrentLimits.StatorCurrentLimit = IntakeConstants.STATOR_CURRENT_LIMIT_AMPS;
@@ -69,8 +66,10 @@ public class IntakeIOTalonFX implements IntakeIO {
   public void updateInputs(IntakeIOInputs inputs) {
     var status = BaseStatusSignal.refreshAll(velocity, appliedVolts, current);
     inputs.motorConnected = motorConnectedDebounce.calculate(status.isOK());
-    // XOR: flips the reading when the sensor is inverted, passes it through when not.
-    inputs.sensorBlocked = sensor.get() ^ IntakeConstants.SENSOR_INVERTED;
+    inputs.sensorBlocked =
+        IntakeConstants.BEAM_BREAK == BeamBreak.READS_TRUE_WHEN_BLOCKED
+            ? sensor.get()
+            : !sensor.get();
     inputs.velocityRadPerSec = Units.rotationsToRadians(velocity.getValueAsDouble());
     inputs.appliedVolts = appliedVolts.getValueAsDouble();
     inputs.currentAmps = current.getValueAsDouble();

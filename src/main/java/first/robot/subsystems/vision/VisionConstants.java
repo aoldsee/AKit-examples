@@ -25,8 +25,16 @@ public final class VisionConstants {
   // position errors. Raise it if the robot needs vision from across the field.
   public static final double MAX_TAG_DISTANCE_METERS = 6.0;
 
-  // About 1.5 turns per second. MegaTag2 solves with the heading the robot sent it a moment ago;
-  // spinning faster than this, that heading is far enough off to drag the position estimate.
+  // How old the heading MegaTag2 solves with is, in seconds: up to one 20 ms loop since the robot
+  // measured it, plus network delay. While the robot spins, that heading is behind by spin rate *
+  // this delay, and a heading off by some angle puts the position off by about distance * angle
+  // (in radians). So Vision adds distance * spin rate * this delay to the standard deviation, and
+  // trusts an estimate less the faster the robot spins. Raise it if vision drags the pose around
+  // while spinning in front of tags; 0 turns the scaling off.
+  public static final double MEGATAG2_HEADING_DELAY_SECS = 0.02;
+
+  // About 1.5 turns per second. Past this, the stale heading is so far off that even a small
+  // amount of trust would drag the pose, so the estimate is dropped outright.
   public static final double MAX_YAW_VELOCITY_RAD_PER_SEC = Math.toRadians(540.0);
 
   // Observations whose height is further than this from the floor are wrong and get dropped.

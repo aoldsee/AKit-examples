@@ -1,7 +1,7 @@
-package first.robot.commands;
+package first.robot.subsystems.drive;
 
-import static first.robot.commands.DriveCommands.linearVelocityFromJoysticks;
-import static first.robot.commands.DriveCommands.rotationFromJoystick;
+import static first.robot.subsystems.drive.DriveCommands.linearVelocityFromJoysticks;
+import static first.robot.subsystems.drive.DriveCommands.rotationFromJoystick;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import org.junit.jupiter.api.Test;

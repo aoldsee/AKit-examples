@@ -5,17 +5,14 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.ctre.phoenix6.SignalLogger;
-import first.robot.commands.AlignTargets;
-import first.robot.commands.DriveCommands;
-import first.robot.commands.DriveSystemsCheck;
-import first.robot.generated.TunerConstants;
+import first.robot.field.AlignTargets;
+import first.robot.field.FieldGeometry;
 import first.robot.sim.SimWorld;
 import first.robot.subsystems.vision.LimelightSim;
 import first.robot.subsystems.vision.Vision;
 import first.robot.subsystems.vision.VisionConstants;
 import first.robot.subsystems.vision.VisionIO;
 import first.robot.subsystems.vision.VisionIOLimelight;
-import first.robot.util.FieldGeometry;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
@@ -58,10 +55,10 @@ class DriveSimTest {
     drive =
         new Drive(
             new GyroIOPigeon2Sim(driveSim),
-            new ModuleIOTalonFXSim(DriveConstants.MODULE_CONSTANTS[0], driveSim),
-            new ModuleIOTalonFXSim(DriveConstants.MODULE_CONSTANTS[1], driveSim),
-            new ModuleIOTalonFXSim(DriveConstants.MODULE_CONSTANTS[2], driveSim),
-            new ModuleIOTalonFXSim(DriveConstants.MODULE_CONSTANTS[3], driveSim));
+            new ModuleIOTalonFXSim(DriveConstants.MODULES[0], driveSim),
+            new ModuleIOTalonFXSim(DriveConstants.MODULES[1], driveSim),
+            new ModuleIOTalonFXSim(DriveConstants.MODULES[2], driveSim),
+            new ModuleIOTalonFXSim(DriveConstants.MODULES[3], driveSim));
     // Vision is built here but only stepped in the vision test, so it can't mask odometry errors
     // the other tests are looking for.
     var visionIOs = new VisionIO[VisionConstants.CAMERA_NAMES.length];
@@ -124,6 +121,40 @@ class DriveSimTest {
   }
 
   @Test
+  void encoderOffsetsUndoAWheelAngle() throws InterruptedException {
+    // Point every module 30 degrees left, as if it had been bumped off straight, then disable.
+    var angle = Rotation2d.fromDegrees(30.0);
+    long end = System.nanoTime() + 1_000_000_000L;
+    while (System.nanoTime() < end) {
+      DriverStationSim.notifyNewData();
+      drive.periodic();
+      drive.runDirect(angle, 0.0);
+      Thread.sleep(20);
+    }
+    DriverStationSim.setEnabled(false);
+    try {
+      // Only read inputs while disabling. The Talons keep obeying commands for a moment after the
+      // disable, and a stop request would turn the wheels back to the last kinematic heading (0).
+      end = System.nanoTime() + 200_000_000L;
+      while (System.nanoTime() < end) {
+        DriverStationSim.notifyNewData();
+        drive.periodic();
+        Thread.sleep(20);
+      }
+      runCommand(DriveCharacterization.findEncoderOffsets(drive), 0.2);
+      double[] offsets = DriveCharacterization.encoderOffsets(drive.getModuleAbsoluteAngles());
+      System.out.println("SIMTEST encoder offsets: " + java.util.Arrays.toString(offsets));
+      for (double offset : offsets) {
+        // Subtracting 30 degrees (1/12 of a turn) brings the module back to reading 0.
+        assertEquals(-1.0 / 12.0, offset, 0.005);
+      }
+    } finally {
+      DriverStationSim.setEnabled(true);
+      DriverStationSim.notifyNewData();
+    }
+  }
+
+  @Test
   void systemsCheckPassesOnAHealthyDrivetrain() throws InterruptedException {
     List<String> failures = new ArrayList<>();
     runCommand(DriveSystemsCheck.create(drive, failures::addAll), 3.5);
@@ -134,28 +165,29 @@ class DriveSimTest {
   @Test
   void feedforwardCharacterizationRecoversSimMotor() throws InterruptedException {
     run(new ChassisVelocities(), 0.5);
-    var result = new AtomicReference<DriveCommands.FeedforwardFit>();
+    var result = new AtomicReference<DriveCharacterization.FeedforwardFit>();
     // 2 s settle, then 10 s of ramp up to 1 V.
-    runCommand(DriveCommands.feedforwardCharacterization(drive, result::set), 12.0);
+    runCommand(DriveCharacterization.feedforwardCharacterization(drive, result::set), 12.0);
 
     var fit = result.get();
     System.out.println("SIMTEST FF fit: " + fit);
-    // The sim plant is a Kraken X60 FOC behind the drive reduction, so kV should land on the value
-    // derived in TunerConstants, and kS on the simulated friction voltage.
-    double expectedKV = TunerConstants.FrontLeft.DriveMotorGains.kV;
+    // The sim is built from DRIVE_KS and DRIVE_KV, so characterizing it should measure them back.
+    // That isn't circular: the routine only sends voltages and watches the wheels, and never reads
+    // those constants, so it's measuring them the same way it would on a real robot.
+    double expectedKV = DriveConstants.DRIVE_KV;
     assertEquals(expectedKV, fit.kV(), expectedKV * 0.1, "kV");
-    assertEquals(TunerConstants.FrontLeft.DriveFrictionVoltage, fit.kS(), 0.1, "kS");
+    assertEquals(DriveConstants.DRIVE_KS, fit.kS(), 0.1, "kS");
   }
 
   @Test
   void wheelRadiusCharacterizationRecoversWheelRadius() throws InterruptedException {
     run(new ChassisVelocities(), 0.5);
-    var result = new AtomicReference<DriveCommands.WheelRadiusResult>();
-    runCommand(DriveCommands.wheelRadiusCharacterization(drive, result::set), 12.0);
+    var result = new AtomicReference<DriveCharacterization.WheelRadiusResult>();
+    runCommand(DriveCharacterization.wheelRadiusCharacterization(drive, result::set), 12.0);
 
     var measured = result.get();
     System.out.println("SIMTEST wheel radius: " + measured);
-    double expected = TunerConstants.FrontLeft.WheelRadius;
+    double expected = DriveConstants.WHEEL_RADIUS_METERS;
     assertEquals(expected, measured.radiusMeters(), expected * 0.05, "wheel radius");
   }
 
@@ -163,7 +195,9 @@ class DriveSimTest {
   void sysIdDynamicDrivesInRequestedDirection() throws InterruptedException {
     // 1 s settle plus 1 s of the 7 V step. Steady state at 7 V is about 2.9 m/s, so even with the
     // ramp up this covers well over a meter.
-    runCommand(DriveCommands.sysIdDynamic(drive, DriveCommands.SysIdDirection.REVERSE), 2.0);
+    runCommand(
+        DriveCharacterization.sysIdDynamic(drive, DriveCharacterization.SysIdDirection.REVERSE),
+        2.0);
     var pose = drive.getPose();
     System.out.println("SIMTEST sysid dynamic reverse pose: " + pose);
     assertTrue(pose.getX() < -1.0, "moved backward");
@@ -284,8 +318,9 @@ class DriveSimTest {
     // Finishes inside 2 cm / 2 degrees, then coasts a little while stopping.
     assertEquals(0.0, pose.getTranslation().getDistance(target.getTranslation()), 0.03);
     assertEquals(0.0, pose.getRotation().minus(target.getRotation()).getDegrees(), 3.0);
-    // Odometry samples the wheels rather than measuring the ground, so it drifts a few
-    // centimeters from the truth over a move that turns and translates at once.
+    // Odometry only counts how far the wheels roll. While turning and driving at once the tread
+    // slides sideways a little (more in the sim than on real tread, which grips stiffer), and
+    // odometry can't see that, so it ends a few centimeters from the truth.
     assertEquals(0.0, truth.getTranslation().getDistance(target.getTranslation()), 0.06);
   }
 

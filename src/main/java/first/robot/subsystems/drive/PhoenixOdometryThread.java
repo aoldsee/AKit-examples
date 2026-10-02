@@ -2,7 +2,6 @@ package first.robot.subsystems.drive;
 
 import com.ctre.phoenix6.BaseStatusSignal;
 import com.ctre.phoenix6.StatusSignal;
-import first.robot.generated.TunerConstants;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Queue;
@@ -22,10 +21,12 @@ import org.wpilib.units.measure.Angle;
  * length.
  */
 public final class PhoenixOdometryThread extends Thread {
-  // Holds about 80 ms at 250 Hz. Older samples drop if the main loop stalls longer than that.
+  // Holds about 80 ms at 250 Hz. If the main loop stalls longer than that, new samples are
+  // dropped. Harmless: each sample is a total position, not a change, so the next one still
+  // lands in the right place.
   private static final int QUEUE_CAPACITY = 20;
 
-  private static final boolean IS_CAN_FD = TunerConstants.kCANBus.isNetworkFD();
+  private static final boolean IS_CAN_FD = DriveConstants.CAN_BUS.isNetworkFD();
   private static PhoenixOdometryThread instance = null;
 
   private final Lock signalsLock = new ReentrantLock();

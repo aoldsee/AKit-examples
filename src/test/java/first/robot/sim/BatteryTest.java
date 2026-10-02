@@ -1,4 +1,4 @@
-package first.robot.util;
+package first.robot.sim;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -18,7 +18,7 @@ class BatteryTest {
   @Test
   void drawingCurrentUsesUpCharge() {
     var battery = new Battery(18.0, 1.0);
-    // 36 A for 30 minutes is 18 Ah, so this uses a quarter of it.
+    // 36 A for 450 s (an eighth of an hour) is 4.5 Ah, a quarter of 18 Ah.
     battery.draw(36.0, 450.0);
     assertEquals(4.5, battery.getAmpHoursUsed(), 1e-9);
     assertEquals(0.75, battery.getStateOfCharge(), 1e-9);

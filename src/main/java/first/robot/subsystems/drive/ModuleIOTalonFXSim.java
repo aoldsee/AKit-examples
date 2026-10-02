@@ -1,9 +1,5 @@
 package first.robot.subsystems.drive;
 
-import com.ctre.phoenix6.configs.CANcoderConfiguration;
-import com.ctre.phoenix6.configs.TalonFXConfiguration;
-import com.ctre.phoenix6.swerve.SwerveModuleConstants;
-
 /**
  * Simulated module. Everything a real module does (device configs, Phoenix closed loops, coupling
  * compensation, high-rate odometry) is inherited unchanged from {@link ModuleIOTalonFX}. The only
@@ -11,12 +7,9 @@ import com.ctre.phoenix6.swerve.SwerveModuleConstants;
  * part of the physical module behind them.
  */
 public class ModuleIOTalonFXSim extends ModuleIOTalonFX {
-  public ModuleIOTalonFXSim(
-      SwerveModuleConstants<TalonFXConfiguration, TalonFXConfiguration, CANcoderConfiguration>
-          constants,
-      SwerveDriveSim driveSim) {
-    super(constants);
+  public ModuleIOTalonFXSim(DriveConstants.ModuleConfig module, SwerveDriveSim driveSim) {
+    super(module);
     driveSim.addModule(
-        constants, driveTalon.getSimState(), turnTalon.getSimState(), cancoder.getSimState());
+        module, driveTalon.getSimState(), turnTalon.getSimState(), cancoder.getSimState());
   }
 }

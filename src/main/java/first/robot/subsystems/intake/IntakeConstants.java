@@ -1,8 +1,9 @@
 package first.robot.subsystems.intake;
 
 import com.ctre.phoenix6.CANBus;
+import com.ctre.phoenix6.signals.InvertedValue;
+import first.robot.hardware.Motors;
 import first.robot.subsystems.arm.ArmConstants;
-import first.robot.util.Motors;
 import org.wpilib.math.util.Units;
 
 /**
@@ -16,18 +17,24 @@ public final class IntakeConstants {
   // Rides on the arm, so its wiring runs along the arm's and joins the same CAN bus.
   public static final CANBus CAN_BUS = ArmConstants.CAN_BUS;
   public static final int MOTOR_ID = 16;
-  public static final boolean MOTOR_INVERTED = false;
+
+  /** Which spin direction counts as positive. Positive must pull a piece in. */
+  public static final InvertedValue MOTOR_DIRECTION = InvertedValue.CounterClockwise_Positive;
 
   /** SystemCore digital input port the beam break is wired to. */
   public static final int SENSOR_CHANNEL = 0;
 
+  /** What a beam break's signal means. Depends on the sensor and how it's wired. */
+  public enum BeamBreak {
+    READS_TRUE_WHEN_BLOCKED,
+    READS_TRUE_WHEN_CLEAR
+  }
+
   /**
-   * A beam break reads one value with the beam clear and the other with a piece in the way. Which
-   * is which depends on the sensor and how it's wired. Many read true while clear, so a piece reads
-   * false, which is what true here means. To check a real sensor, watch Intake/SensorBlocked in the
-   * log while putting a piece in by hand.
+   * Many beam breaks read true while the beam is clear. To check a real one, put a piece in by hand
+   * and watch Intake/SensorBlocked in the log: it should read true. If not, switch this.
    */
-  public static final boolean SENSOR_INVERTED = true;
+  public static final BeamBreak BEAM_BREAK = BeamBreak.READS_TRUE_WHEN_CLEAR;
 
   /**
    * Seconds the sensor must agree before Intake believes it. A piece bouncing in the rollers can

@@ -69,12 +69,13 @@ The code is under `src/main/java/first/robot/`. A good order:
 4. `subsystems/arm/Arm.java`: a mechanism that moves to angles and fights gravity.
 5. `Controls.java`: what every button does.
 6. `autos/Autos.java`: autonomous routines built from the mechanisms' commands.
-7. `subsystems/drive/DriveCommands.java`: start with `joystickDrive`. `Drive.java` itself (threads, pose estimation) is the most advanced and complicated file here.
+7. `subsystems/drive/DriveCommands.java`: start with `joystickDrive`. `Drive.java` itself (threads, pose estimation) is the most advanced and complicated file here; [The drive and odometry](docs/drive-and-odometry.md) walks through it.
 
 The `*Constants.java` files are mostly numbers, and the math that works some of them out can be skipped.
 
 ## More docs
 
+- [The drive and odometry](docs/drive-and-odometry.md): how stick input becomes wheel commands, and how the robot tracks where it is.
 - [Tuning gains](docs/tuning.md): what each gain does, the order to tune them in, and changing them while the simulator runs.
 - [Logs and replay](docs/logs-and-replay.md): what to look at in AdvantageScope, and rerunning a match on a laptop.
 - [Tests](docs/testing.md): unit tests and simulation tests, and how to run them.

@@ -1,7 +1,5 @@
 # Tuning gains
 
-Gains are the numbers that decide how hard a controller pushes. Every closed-loop mechanism on this robot uses the same few kinds, so tuning one teaches all of them.
-
 ## The gains
 
 **Feedback** reacts to error: the difference between where a mechanism is and where it should be.

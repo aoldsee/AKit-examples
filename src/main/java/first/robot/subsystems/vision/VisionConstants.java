@@ -25,15 +25,17 @@ public final class VisionConstants {
   // position errors. Raise it if the robot needs vision from across the field.
   public static final double MAX_TAG_DISTANCE_METERS = 6.0;
 
-  // How old the heading MegaTag2 solves with is, in seconds: up to one 20 ms loop since the robot
-  // measured it, plus network delay. While the robot spins, that heading is behind by spin rate *
-  // this delay, and a heading off by some angle puts the position off by about distance * angle
-  // (in radians). So Vision adds distance * spin rate * this delay to the standard deviation, and
+  // How far apart in time the heading MegaTag2 solves with and the moment the picture was taken
+  // can be, in seconds. The robot sends its heading once per 20 ms loop, so the camera solves with
+  // one that's up to a loop older or newer than its picture, plus network delay. While the robot
+  // spins, that heading is off by spin rate * this delay, and a heading off by some angle puts the
+  // position off by about distance * angle (in radians). So Vision adds distance * spin rate * this
+  // delay to the standard deviation, and
   // trusts an estimate less the faster the robot spins. Raise it if vision drags the pose around
   // while spinning in front of tags; 0 turns the scaling off.
   public static final double MEGATAG2_HEADING_DELAY_SECS = 0.02;
 
-  // About 1.5 turns per second. Past this, the stale heading is so far off that even a small
+  // About 1.5 turns per second. Past this, the mismatched heading is so far off that even a small
   // amount of trust would drag the pose, so the estimate is dropped outright.
   public static final double MAX_YAW_VELOCITY_RAD_PER_SEC = Math.toRadians(540.0);
 
@@ -49,6 +51,21 @@ public final class VisionConstants {
    * accepted poses wander.
    */
   public static final double LINEAR_STD_DEV_BASELINE = 0.0025;
+
+  /**
+   * How much to trust MegaTag1's heading from one tag seen from 1 meter away, as a standard
+   * deviation in radians. Scaled the same way as LINEAR_STD_DEV_BASELINE: a typical view of 5 tags
+   * at 4 m works out to about 2 degrees. Each frame then moves the heading only about 3% of the way
+   * (see DriveConstants.ODOMETRY_STD_DEVS), so the gyro's smooth heading still dominates from
+   * moment to moment, but a heading that's wrong (a crooked start, gyro drift) is pulled back
+   * within a second or two of seeing tags. An estimate; measure it the same way as the linear one,
+   * watching the heading instead.
+   */
+  public static final double ANGULAR_STD_DEV_BASELINE = 0.01;
+
+  // MegaTag1 needs at least this many tags for its heading. From a single flat tag, two quite
+  // different camera angles can produce nearly the same image, so its heading can flip.
+  public static final int MEGATAG_1_MIN_TAGS = 2;
 
   /** Per-camera multipliers on the standard deviation, to trust some cameras more than others. */
   public static final double[] CAMERA_STD_DEV_FACTORS = {1.0, 1.0};

@@ -1,7 +1,5 @@
 # Characterization (finding the gains)
 
-Real-robot work: skip this until there's a robot to measure.
-
 The gains in this project are calculated from motor specs, which gets close but not exact. Characterization measures the real robot instead. It finds the **feedforward** gains, which predict the voltage a move needs before any error shows up:
 
 - **kS**: volts just to overcome friction
@@ -21,6 +19,8 @@ Put the results into the characterization constants: `DRIVE_KS`, `DRIVE_KV`, and
 
 - They're the feedforward gains, so the real robot's control gets them right. (The drive's kA is the exception: the drive commands don't send accelerations, so only the sim uses it.)
 - They're also what the simulator builds its models from, so the sim behaves like the real robot. Gains tuned on the real robot (kP, kD) then work in sim too.
+
+One limit on that: a measured drive kA covers everything that has to speed up, including the spinning wheels, gears, and motor rotors, not just the robot's mass. The drive sim treats all of it as mass, so with a measured kA its acceleration comes out right, but the push per volt, and so the point where the wheels slip, comes out a little low.
 
 ### Reading SysId results
 

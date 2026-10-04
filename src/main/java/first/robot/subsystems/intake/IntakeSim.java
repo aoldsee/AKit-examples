@@ -77,8 +77,10 @@ public class IntakeSim implements SimulatedMechanism {
     rollers.update(dtSeconds);
     if (hasPiece && volts > 0.0) {
       // Pulling inward against a piece that's already against the stop: nothing turns, so undo
-      // this step's movement too.
+      // this step's movement too. It also pulls a half-ejected piece back in, so an eject that
+      // was let go partway starts over next time.
       rollers.setState(positionBefore, 0.0);
+      travel = 0.0;
     }
 
     double rotations = Units.radiansToRotations(rollers.getAngularVelocity()) * dtSeconds;

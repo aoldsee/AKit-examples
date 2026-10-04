@@ -1,7 +1,5 @@
 # How the code works
 
-The ideas the whole robot program is built on: IO layers, how the simulator plugs in, the robot loop, and field coordinates.
-
 ## The big idea: IO layers
 
 AdvantageKit splits every mechanism into two halves:
@@ -11,7 +9,7 @@ AdvantageKit splits every mechanism into two halves:
 
 Every loop, the mechanism asks its IO to fill in an inputs object, and AdvantageKit logs it. The mechanism only ever looks at those logged inputs, never at hardware directly. That rule is what makes **replay** possible: feed the logged inputs back in later, and the mechanism makes exactly the same decisions it made on the field. That means logging can be added or a bug fixed, and a real match rerun on a laptop.
 
-Classes like `ArmIOInputsAutoLogged` aren't in `src/`: AdvantageKit generates them at build time from the inputs class marked `@AutoLog` (for example `ArmIO.ArmIOInputs`). They add the code that logs every field.
+Classes like `ArmIOInputsAutoLogged` aren't in `src/`: AdvantageKit generates them at build time from the inputs class marked `@AutoLog` (for example `ArmIO.ArmIOInputs`). They add the code that logs every field. Until the project has been built once, an editor shows them as missing, with errors on every line that uses them; that's expected, and building clears it.
 
 Which IO a mechanism gets depends on the mode the robot is running in. All of that choosing happens in one place, `RobotContainer`:
 

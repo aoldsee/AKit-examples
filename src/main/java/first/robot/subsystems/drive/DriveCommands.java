@@ -97,6 +97,65 @@ public final class DriveCommands {
         .named("Drive.Joystick");
   }
 
+  /**
+   * Robot-relative driving: stick forward means the robot's own forward, whichever way it faces.
+   * It's joystickDrive without the one line that turns field directions into the robot's, so
+   * comparing the two shows exactly what that line does. Drivers use it to line up something
+   * mounted on the robot, like an intake, and it still works if the heading is ever wrong.
+   */
+  public static Command robotRelativeDrive(
+      Drive drive,
+      DoubleSupplier xSupplier,
+      DoubleSupplier ySupplier,
+      DoubleSupplier omegaSupplier,
+      DoubleSupplier accelCap) {
+    var limiter = limiter(accelCap);
+    return drive
+        .run(
+            coroutine -> {
+              // The limiter works in the robot's frame here, so start it from the robot-relative
+              // velocity.
+              var measured = drive.getChassisVelocities();
+              limiter.reset(new Translation2d(measured.vx, measured.vy));
+              while (true) {
+                var linear = limitedLinearVelocity(limiter, xSupplier, ySupplier);
+                double omega =
+                    rotationFromJoystick(omegaSupplier.getAsDouble())
+                        * DriveConstants.MAX_ANGULAR_SPEED;
+                // No toRobotRelative: the sticks already mean the robot's own directions.
+                drive.runVelocity(new ChassisVelocities(linear.getX(), linear.getY(), omega));
+                coroutine.yield();
+              }
+            })
+        .named("Drive.RobotRelative");
+  }
+
+  /**
+   * Locks the wheels in an X so the robot is hard to push, and holds them there until any stick
+   * leaves its deadband. Then the command finishes and the drive's default command takes over.
+   *
+   * <p>It keeps running instead of locking once and finishing because the joystick command starts
+   * from how fast the robot is measured to be moving. Right after a stop that's a few mm/s, never
+   * exactly zero, and even that small a request turns every wheel to point along it.
+   */
+  public static Command xLock(
+      Drive drive,
+      DoubleSupplier xSupplier,
+      DoubleSupplier ySupplier,
+      DoubleSupplier omegaSupplier) {
+    return drive
+        .run(
+            coroutine -> {
+              while (linearVelocityFromJoysticks(xSupplier.getAsDouble(), ySupplier.getAsDouble())
+                      .equals(Translation2d.ZERO)
+                  && rotationFromJoystick(omegaSupplier.getAsDouble()) == 0.0) {
+                drive.stopWithX();
+                coroutine.yield();
+              }
+            })
+        .named("Drive.XLock");
+  }
+
   /** Field-relative translation from the sticks, heading held by a profiled PID controller. */
   public static Command joystickDriveAtAngle(
       Drive drive,

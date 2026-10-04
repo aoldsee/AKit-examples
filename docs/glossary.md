@@ -1,8 +1,6 @@
-# Terms and Java
+# Terms and Java concepts / keywords
 
-Words and Java features that show up all over the code. Read the first section before opening any code; it's short. The rest is for looking things up when they come up.
-
-## Read this first
+## Basics
 
 - **Pose**: where the robot is and which way it faces (x, y, heading).
 - **Field-relative** driving: stick forward always means "away from the driver", whichever way the robot faces. **Robot-relative** means "the robot's own forward".
@@ -36,6 +34,10 @@ Words and Java features that show up all over the code. Read the first section b
 - **Beam break**: a sensor with a light beam across a gap. Anything in the gap blocks the beam, so it says whether a game piece is there.
 - **Stator** and **supply** current: stator current flows inside the motor and decides how hard it pushes; supply current is what it takes from the battery. They can be very different; see [The battery and brownouts](battery-and-brownouts.md).
 - **MOI** (moment of inertia): how hard something is to spin up, the turning version of mass.
+- **Back-EMF**: a spinning motor also works as a generator, making a voltage that pushes against the voltage driving it. The faster it spins, the more it pushes back, which is why a motor has a top speed and why kV exists.
+- **Plant**: control-theory word for the thing being controlled, like the arm or a wheel. A plant model is the math for how it responds to voltage.
+- **Discretize**: turn a smooth, continuous request into the right one for a fixed time step. The drive does it because the robot turns during each 20 ms loop.
+- **MegaTag1** and **MegaTag2**: the Limelight's two ways of finding the robot from AprilTags. MegaTag1 works out position and heading from the image alone. MegaTag2 uses the robot's own gyro heading instead, which makes its position much steadier, but it can't correct that heading. The code uses MegaTag2 for position and MegaTag1 for heading.
 - **Alert**: a warning shown on the dashboard (and logged), like "Disconnected arm motor".
 
 ## Hardware and software names
@@ -44,6 +46,10 @@ Words and Java features that show up all over the code. Read the first section b
 - **CAN bus**: the pair of wires that connects the robot controller to motor controllers and sensors. Each device sends its readings as small messages called **status frames**, a set number of times a second.
 - **Talon FX**: the motor controller built into the Kraken motors. **CANcoder**: an angle sensor (each swerve module has one to know which way its wheel points). **Pigeon 2**: the gyro, which measures which way the robot faces. All three are made by CTRE and talk over the CAN bus.
 - **FOC** (field-oriented control): a smarter way for the Talon to drive its motor that gets more torque out of it. It needs a Phoenix Pro license.
+- **CAN FD**: a faster version of the CAN bus that carries more data per message, so devices can send readings more often.
+- **Tuner X**: CTRE's app for setting up, testing, and updating CTRE devices.
+- **Hoot log**: CTRE's log file format. Phoenix can record every device signal into one, alongside the AdvantageKit log.
+- **Vendordep** (vendor dependency): a file in `vendordeps/` that adds a company's library (like Phoenix 6) to the project.
 - **DIO**: a digital input/output port, for simple on/off sensors like the intake's beam break.
 - **Limelight**: a smart camera that finds AprilTags and works out where the robot is.
 - **AdvantageKit**: the library that logs every input and output, which makes replay possible. **Phoenix 6**: CTRE's library for its devices. **Commands v3**: WPILib's newest way of writing commands; see [Commands v3](commands.md).
@@ -61,6 +67,7 @@ Words and Java features that show up all over the code. Read the first section b
 - A class written inside an interface, like `IntakeIO.IntakeIOInputs`, is just a class that lives there because it belongs with that interface.
 - No `public`, `private`, or `protected` in front of something makes it **package-private**: only code in the same folder (package) can use it.
 - `import static first.robot.util.PhoenixUtil.tryUntilOk;` lets a file call `tryUntilOk(...)` without the class name in front.
+- A **thread** is a separate line of execution that runs at the same time as the main robot loop. The drive's odometry thread is one. When two threads use the same data, a **lock** makes one wait while the other is using it, so neither sees the data half-changed.
 - `try { ... } finally { ... }`: the `finally` part always runs, even if something goes wrong in the `try` part. Used to make sure a lock is always released.
 - `Optional<Pose2d>` is "maybe a pose". `.orElse(something)` gives a fallback when there isn't one, and `.orElseThrow()` stops the program with an error instead.
 - `@Override`, `@AutoLog`, and other `@` words are **annotations**: labels that tools read. `@AutoLog` tells AdvantageKit to generate the logging code for an inputs class, and `@AutoLogOutput` on a method logs what it returns, every loop.

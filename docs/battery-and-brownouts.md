@@ -14,7 +14,7 @@ The main fix is a **supply current limit**: a cap on how much current each motor
 
 - It's different from a **stator** current limit, which caps the current inside the motor itself. That's about how hard the motor pushes (torque) and how hot it gets; the supply limit is about the battery.
 - A motor draws much less from the battery than it does inside itself at low speed. The motor controller only connects the battery for part of the time (the fraction is applied volts / battery volts), so battery current is roughly motor current times that fraction. Pushing hard while barely moving needs only a few volts, so it takes a small share of the battery. It isn't zero, though: pushing at the 150 A stator limit while standing still, a drive motor would pull about 47 A from the battery, all of it turned into heat. That's over the 40 A supply limit, so with this robot's numbers the supply limit is the one in charge from a standstill, holding the motor to about 139 A.
-- So the limit only kicks in at speed, where the battery is actually hurting, and the robot still launches and pushes hard.
+- So near a standstill the supply limit only trims the push a little (139 A instead of 150 A). It does most of its work at speed, where the battery is actually hurting, and the robot still launches and pushes hard.
 
 ## Acceleration (slew) limits
 

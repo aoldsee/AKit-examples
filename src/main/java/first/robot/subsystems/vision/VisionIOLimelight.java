@@ -14,16 +14,18 @@ import org.wpilib.networktables.DoubleArrayPublisher;
 import org.wpilib.networktables.DoubleArraySubscriber;
 import org.wpilib.networktables.DoubleSubscriber;
 import org.wpilib.networktables.NetworkTableInstance;
+import org.wpilib.networktables.PubSubOption;
 import org.wpilib.system.RobotController;
 
 /**
- * Reads a Limelight's MegaTag2 pose estimates from NetworkTables. Limelight needs no vendor
- * library; it publishes everything to NT. In SIM, {@link LimelightSim} publishes the same topics so
- * this class runs unchanged.
+ * Reads a Limelight's pose estimates from NetworkTables. Limelight needs no vendor library; it
+ * publishes everything to NT. In SIM, {@link LimelightSim} publishes the same topics so this class
+ * runs unchanged.
  *
- * <p>MegaTag2 asks the robot for its heading (from the gyro) and solves only for position, which is
- * far steadier than solving all six axes from the image. The tradeoff is that it can't correct the
- * heading.
+ * <p>The Limelight runs two solvers on every frame, and this reads both. MegaTag2 asks the robot
+ * for its heading (from the gyro) and solves only for position, which is far steadier than solving
+ * everything from the image, but it can't correct the heading. MegaTag1 solves everything from the
+ * image, so Vision uses its heading to fix a wrong one.
  */
 public class VisionIOLimelight implements VisionIO {
   // botpose array layout: x, y, z, roll, pitch, yaw, latency ms, tag count, tag span, average
@@ -40,6 +42,7 @@ public class VisionIOLimelight implements VisionIO {
   private final DoubleSubscriber latencySubscriber;
   private final DoubleSubscriber txSubscriber;
   private final DoubleSubscriber tySubscriber;
+  private final DoubleArraySubscriber megatag1Subscriber;
   private final DoubleArraySubscriber megatag2Subscriber;
 
   /**
@@ -66,8 +69,16 @@ public class VisionIOLimelight implements VisionIO {
     latencySubscriber = table.getDoubleTopic("tl").subscribe(0.0);
     txSubscriber = table.getDoubleTopic("tx").subscribe(0.0);
     tySubscriber = table.getDoubleTopic("ty").subscribe(0.0);
+    // By default a subscriber only keeps the newest value, so a camera faster than the 50 Hz loop
+    // would lose frames between reads. SEND_ALL keeps every one (up to 20) for readQueue below.
+    megatag1Subscriber =
+        table
+            .getDoubleArrayTopic("botpose_wpiblue")
+            .subscribe(new double[] {}, PubSubOption.SEND_ALL);
     megatag2Subscriber =
-        table.getDoubleArrayTopic("botpose_orb_wpiblue").subscribe(new double[] {});
+        table
+            .getDoubleArrayTopic("botpose_orb_wpiblue")
+            .subscribe(new double[] {}, PubSubOption.SEND_ALL);
   }
 
   /**
@@ -122,32 +133,45 @@ public class VisionIOLimelight implements VisionIO {
     List<PoseObservation> observations = new ArrayList<>();
     // readQueue returns every frame since the last call, not just the newest, so no estimate is
     // lost when the camera runs faster than the 50 Hz robot loop.
+    for (var sample : megatag1Subscriber.readQueue()) {
+      parse(sample.value, sample.timestamp, ObservationType.MEGATAG_1, observations, tagIds);
+    }
     for (var sample : megatag2Subscriber.readQueue()) {
-      double[] values = sample.value;
-      if (values.length < FIRST_TAG_INDEX) {
-        continue;
-      }
-      for (int i = FIRST_TAG_INDEX; i < values.length; i += VALUES_PER_TAG) {
-        tagIds.add((int) values[i]);
-      }
-      observations.add(
-          new PoseObservation(
-              // The time NT received the frame (nanoseconds), minus how long the camera took to
-              // produce it (milliseconds).
-              sample.timestamp * 1.0e-9 - values[LATENCY_INDEX] * 1.0e-3,
-              new Pose3d(
-                  values[0],
-                  values[1],
-                  values[2],
-                  new Rotation3d(
-                      Units.degreesToRadians(values[3]),
-                      Units.degreesToRadians(values[4]),
-                      Units.degreesToRadians(values[5]))),
-              (int) values[TAG_COUNT_INDEX],
-              values[AVERAGE_DISTANCE_INDEX]));
+      parse(sample.value, sample.timestamp, ObservationType.MEGATAG_2, observations, tagIds);
     }
 
     inputs.poseObservations = observations.toArray(new PoseObservation[0]);
     inputs.tagIds = tagIds.stream().mapToInt(Integer::intValue).toArray();
+  }
+
+  /** Adds one botpose array (both solvers use the same layout) to the observations. */
+  private static void parse(
+      double[] values,
+      long receivedNanos,
+      ObservationType type,
+      List<PoseObservation> observations,
+      Set<Integer> tagIds) {
+    if (values.length < FIRST_TAG_INDEX) {
+      return;
+    }
+    for (int i = FIRST_TAG_INDEX; i < values.length; i += VALUES_PER_TAG) {
+      tagIds.add((int) values[i]);
+    }
+    observations.add(
+        new PoseObservation(
+            // The time NT received the frame (nanoseconds), minus how long the camera took to
+            // produce it (milliseconds).
+            receivedNanos * 1.0e-9 - values[LATENCY_INDEX] * 1.0e-3,
+            new Pose3d(
+                values[0],
+                values[1],
+                values[2],
+                new Rotation3d(
+                    Units.degreesToRadians(values[3]),
+                    Units.degreesToRadians(values[4]),
+                    Units.degreesToRadians(values[5]))),
+            (int) values[TAG_COUNT_INDEX],
+            values[AVERAGE_DISTANCE_INDEX],
+            type));
   }
 }

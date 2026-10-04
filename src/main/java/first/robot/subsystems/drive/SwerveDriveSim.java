@@ -36,7 +36,8 @@ public class SwerveDriveSim implements SimulatedMechanism {
   // like a particular real robot, adjust these, not the robot's constants.
 
   // FUDGE: how fast the simulated gyro's heading drifts, degrees per minute. Real gyros drift a
-  // little. MegaTag2 vision can't correct heading, so this shows up directly in the pose.
+  // little. Vision pulls the heading back (through MegaTag1) whenever two or more tags are in view;
+  // away from tags, the drift shows up directly in the pose.
   private static final double FUDGE_GYRO_DRIFT_DEG_PER_MIN = 0.0;
 
   private final List<SwerveModuleSim> modules = new ArrayList<>();

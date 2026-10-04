@@ -33,8 +33,6 @@ import first.robot.subsystems.vision.Vision;
 import first.robot.subsystems.vision.VisionConstants;
 import first.robot.subsystems.vision.VisionIO;
 import first.robot.subsystems.vision.VisionIOLimelight;
-import java.util.ArrayList;
-import java.util.List;
 import org.littletonrobotics.junction.Logger;
 import org.littletonrobotics.junction.networktables.LoggedNetworkBoolean;
 import org.littletonrobotics.junction.networktables.LoggedNetworkChooser;
@@ -63,7 +61,6 @@ public class RobotContainer {
   // Only used in SIM. The first two are null and the list is empty otherwise.
   private final SimWorld simWorld;
   private final SwerveDriveSim driveSim;
-  private final List<LimelightSim> limelightSims = new ArrayList<>();
 
   private final LoggedNetworkChooser<Command> autoChooser =
       new LoggedNetworkChooser<>("Auto Choices");
@@ -132,10 +129,9 @@ public class RobotContainer {
         // Vision needs no sim IO subclass. Each LimelightSim publishes to NetworkTables exactly
         // like a real Limelight, so the real VisionIOLimelight reads it unchanged.
         for (int i = 0; i < VisionConstants.CAMERA_NAMES.length; i++) {
-          var limelightSim =
-              new LimelightSim(VisionConstants.CAMERA_NAMES[i], driveSim::getTruePose);
-          simWorld.add("Camera" + i, limelightSim);
-          limelightSims.add(limelightSim);
+          simWorld.add(
+              "Camera" + i,
+              new LimelightSim(VisionConstants.CAMERA_NAMES[i], driveSim::getTruePose));
         }
         vision =
             new Vision(
@@ -291,8 +287,6 @@ public class RobotContainer {
     drive.setPose(pose);
     if (driveSim != null) {
       driveSim.resetTruePose(pose);
-      // Otherwise the cameras would report a few frames from where the robot was before.
-      limelightSims.forEach(LimelightSim::clearHistory);
     }
   }
 }

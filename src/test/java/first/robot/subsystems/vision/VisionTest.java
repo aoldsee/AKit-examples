@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import first.robot.field.FieldGeometry;
+import first.robot.subsystems.vision.VisionIO.ObservationType;
 import first.robot.subsystems.vision.VisionIO.PoseObservation;
 import java.util.ArrayList;
 import java.util.List;
@@ -63,7 +64,17 @@ class VisionTest {
 
   private static PoseObservation observation(
       double x, double y, double z, int tagCount, double distance) {
-    return new PoseObservation(1.0, new Pose3d(x, y, z, Rotation3d.ZERO), tagCount, distance);
+    return new PoseObservation(
+        1.0, new Pose3d(x, y, z, Rotation3d.ZERO), tagCount, distance, ObservationType.MEGATAG_2);
+  }
+
+  private static PoseObservation megatag1(int tagCount, double distance) {
+    return new PoseObservation(
+        1.0,
+        new Pose3d(MID_X, MID_Y, 0.0, Rotation3d.ZERO),
+        tagCount,
+        distance,
+        ObservationType.MEGATAG_1);
   }
 
   private static void feed(PoseObservation... observations) {
@@ -84,6 +95,26 @@ class VisionTest {
         VisionConstants.LINEAR_STD_DEV_BASELINE * 4 / 1, measurement.stdDevs().get(0, 0), 1e-9);
     // MegaTag2 can't correct heading, so heading is never trusted.
     assertEquals(Double.POSITIVE_INFINITY, measurement.stdDevs().get(2, 0));
+  }
+
+  @Test
+  void megatag1SuppliesHeadingOnly() {
+    // Two tags at 2 m: angular baseline * distance^2 / tags, and position ignored.
+    feed(megatag1(2, 2.0));
+
+    assertEquals(1, sent.size());
+    var stdDevs = sent.get(0).stdDevs();
+    assertEquals(Double.POSITIVE_INFINITY, stdDevs.get(0, 0));
+    assertEquals(Double.POSITIVE_INFINITY, stdDevs.get(1, 0));
+    assertEquals(VisionConstants.ANGULAR_STD_DEV_BASELINE * 4 / 2, stdDevs.get(2, 0), 1e-9);
+  }
+
+  @Test
+  void megatag1NeedsTwoTags() {
+    feed(megatag1(1, 2.0));
+
+    assertEquals(0, sent.size());
+    assertEquals(Vision.RejectReason.ONE_TAG, Vision.rejectReason(megatag1(1, 2.0), 0.0));
   }
 
   @Test

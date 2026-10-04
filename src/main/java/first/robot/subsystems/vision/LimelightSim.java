@@ -21,12 +21,14 @@ import org.wpilib.system.Timer;
 
 /**
  * A pretend Limelight. It looks at where the simulated robot really is, works out which AprilTags
- * the camera could see, and publishes a MegaTag2 result to the same NetworkTables topics a real
- * Limelight would. {@link VisionIOLimelight} reads it without knowing the difference.
+ * the camera could see, and publishes MegaTag1 and MegaTag2 results to the same NetworkTables
+ * topics a real Limelight would. {@link VisionIOLimelight} reads them without knowing the
+ * difference.
  *
  * <p>Realism it adds on purpose: frames arrive at a fixed rate, each one describes where the robot
  * was when the image was taken (latency), and the position has noise that grows with distance and
- * shrinks with more tags. Not modeled: motion blur, occlusion, lighting, or wrong tag detections.
+ * shrinks with more tags. Not modeled: motion blur, occlusion, lighting, wrong tag detections, or
+ * MegaTag1's heading flipping when it sees only one tag.
  */
 public class LimelightSim implements SimulatedMechanism {
   // FUDGE: real-world effects this sim leaves out. Both set to "no effect" here.
@@ -63,13 +65,15 @@ public class LimelightSim implements SimulatedMechanism {
       TimeInterpolatableBuffer.createBuffer(1.0);
   private final Random random = new Random();
 
-  private final DoubleArrayPublisher botposePublisher;
+  private final DoubleArrayPublisher megatag1Publisher;
+  private final DoubleArrayPublisher megatag2Publisher;
   private final DoublePublisher latencyPublisher;
   private final DoublePublisher txPublisher;
   private final DoublePublisher tyPublisher;
   private final DoubleArraySubscriber orientationSubscriber;
 
   private double secsSinceFrame = 0.0;
+  private Pose2d lastTruePose = null;
 
   /**
    * @param name the camera's NT table, matching the name its VisionIOLimelight reads
@@ -80,7 +84,8 @@ public class LimelightSim implements SimulatedMechanism {
     var table = NetworkTableInstance.getDefault().getTable(name);
     cameraPoseSubscriber =
         table.getDoubleArrayTopic("camerapose_robotspace_set").subscribe(new double[] {});
-    botposePublisher = table.getDoubleArrayTopic("botpose_orb_wpiblue").publish();
+    megatag1Publisher = table.getDoubleArrayTopic("botpose_wpiblue").publish();
+    megatag2Publisher = table.getDoubleArrayTopic("botpose_orb_wpiblue").publish();
     latencyPublisher = table.getDoubleTopic("tl").publish();
     txPublisher = table.getDoubleTopic("tx").publish();
     tyPublisher = table.getDoubleTopic("ty").publish();
@@ -93,13 +98,24 @@ public class LimelightSim implements SimulatedMechanism {
     // Not Timer.getTimestamp(): AdvantageKit freezes that once per robot loop for replay, and this
     // runs on the SimWorld thread between loops.
     double now = Timer.getMonotonicTimestamp();
-    truePoseHistory.addSample(now, truePoseSupplier.get());
+    var truePose = truePoseSupplier.get();
+    // A jump no robot could drive in one step means the simulated robot was teleported (a pose
+    // reset). Forget the old spot, or the next few frames would come from in between the two.
+    // Done here, on the SimWorld thread, because the history isn't safe to touch from two threads.
+    if (lastTruePose != null && isTeleport(lastTruePose, truePose)) {
+      truePoseHistory.clear();
+    }
+    lastTruePose = truePose;
+    truePoseHistory.addSample(now, truePose);
 
     secsSinceFrame += dtSeconds;
     if (secsSinceFrame < FRAME_PERIOD_SECS) {
       return CAMERA_AMPS;
     }
-    secsSinceFrame = 0.0;
+    // Subtract rather than reset to zero: the sim steps every 4 ms, which doesn't divide evenly
+    // into a frame period, and resetting would round every frame up to the next step (83 fps
+    // instead of 90).
+    secsSinceFrame -= FRAME_PERIOD_SECS;
 
     // The frame shows the robot as it was when the image was taken, not as it is now.
     var robotAtCapture = truePoseHistory.getSample(now - LATENCY_SECS);
@@ -117,7 +133,8 @@ public class LimelightSim implements SimulatedMechanism {
     // Small jitter keeps the value changing, which is how VisionIOLimelight knows we're alive.
     double latencyMs = LATENCY_SECS * 1000.0 + random.nextDouble() * 0.1;
     latencyPublisher.set(latencyMs);
-    botposePublisher.set(buildBotpose(robotAtCapture.get(), visible, latencyMs));
+    megatag1Publisher.set(buildMegatag1(robotAtCapture.get(), visible, latencyMs));
+    megatag2Publisher.set(buildMegatag2(robotAtCapture.get(), visible, latencyMs));
 
     if (visible.isEmpty()) {
       txPublisher.set(0.0);
@@ -163,23 +180,57 @@ public class LimelightSim implements SimulatedMechanism {
     return visible;
   }
 
-  /** Builds a botpose_orb_wpiblue array, the same layout VisionIOLimelight parses. */
-  private double[] buildBotpose(Pose2d robot, List<VisibleTag> visible, double latencyMs) {
+  /**
+   * The botpose array layout both solvers share, with no pose filled in yet: latency, tag count,
+   * average distance, and each tag's ID and distance. Empty of tags when none are visible.
+   */
+  private static double[] emptyBotpose(List<VisibleTag> visible, double latencyMs) {
     double[] values = new double[11 + 7 * visible.size()];
     values[6] = latencyMs;
     values[7] = visible.size();
+    values[9] = visible.stream().mapToDouble(VisibleTag::distance).average().orElse(0);
+    for (int i = 0; i < visible.size(); i++) {
+      // Only the ID and distance are filled in; VisionIOLimelight doesn't read the rest.
+      values[11 + 7 * i] = visible.get(i).id;
+      values[11 + 7 * i + 4] = visible.get(i).distance;
+    }
+    return values;
+  }
+
+  /** How much to scale the trust baselines for this view, the same way Vision does. */
+  private static double noiseScale(List<VisibleTag> visible) {
+    double averageDistance = visible.stream().mapToDouble(VisibleTag::distance).average().orElse(0);
+    return averageDistance * averageDistance / visible.size() * FUDGE_NOISE_SCALE;
+  }
+
+  /**
+   * A botpose_wpiblue array: MegaTag1, which solves position and heading from the image alone. Its
+   * heading gets the noise Vision expects (VisionConstants.ANGULAR_STD_DEV_BASELINE). Its position
+   * is noisier than MegaTag2's; Vision ignores it, so the exact amount doesn't matter.
+   */
+  private double[] buildMegatag1(Pose2d robot, List<VisibleTag> visible, double latencyMs) {
+    double[] values = emptyBotpose(visible, latencyMs);
     if (visible.isEmpty()) {
       return values;
     }
+    double scale = noiseScale(visible);
+    double linearStdDev = 3 * VisionConstants.LINEAR_STD_DEV_BASELINE * scale;
+    values[0] = robot.getX() + random.nextGaussian() * linearStdDev;
+    values[1] = robot.getY() + random.nextGaussian() * linearStdDev;
+    values[5] =
+        robot.getRotation().getDegrees()
+            + Units.radiansToDegrees(
+                random.nextGaussian() * VisionConstants.ANGULAR_STD_DEV_BASELINE * scale);
+    addOutlier(values);
+    return values;
+  }
 
-    double averageDistance = visible.stream().mapToDouble(VisibleTag::distance).average().orElse(0);
-    // Same model Vision uses to decide how much to trust a result, so the trust is accurate here
-    // (unless FUDGE_NOISE_SCALE says otherwise).
-    double stdDev =
-        VisionConstants.LINEAR_STD_DEV_BASELINE
-            * averageDistance
-            * averageDistance
-            / visible.size();
+  /** A botpose_orb_wpiblue array: MegaTag2, which solves position using the robot's heading. */
+  private double[] buildMegatag2(Pose2d robot, List<VisibleTag> visible, double latencyMs) {
+    double[] values = emptyBotpose(visible, latencyMs);
+    if (visible.isEmpty()) {
+      return values;
+    }
 
     // MegaTag2 takes the heading from the robot instead of the image. The camera sees which way
     // the tags are from the robot, and turns that into field directions using the heading it was
@@ -197,26 +248,28 @@ public class LimelightSim implements SimulatedMechanism {
     }
     var solved = tagCenter.plus(robot.getTranslation().minus(tagCenter).rotateBy(headingError));
 
-    stdDev *= FUDGE_NOISE_SCALE;
+    // The same noise Vision expects (unless FUDGE_NOISE_SCALE says otherwise), so the trust is
+    // accurate here.
+    double stdDev = VisionConstants.LINEAR_STD_DEV_BASELINE * noiseScale(visible);
     values[0] = solved.getX() + random.nextGaussian() * stdDev;
     values[1] = solved.getY() + random.nextGaussian() * stdDev;
+    values[5] = sentHeading.getDegrees();
+    addOutlier(values);
+    return values;
+  }
+
+  /** Once in a while (FUDGE_OUTLIER_CHANCE), throws the position about a meter off. */
+  private void addOutlier(double[] values) {
     if (random.nextDouble() < FUDGE_OUTLIER_CHANCE) {
       double direction = random.nextDouble() * 2 * Math.PI;
       values[0] += FUDGE_OUTLIER_METERS * Math.cos(direction);
       values[1] += FUDGE_OUTLIER_METERS * Math.sin(direction);
     }
-    values[5] = sentHeading.getDegrees();
-    values[9] = averageDistance;
-    for (int i = 0; i < visible.size(); i++) {
-      // Only the ID and distance are filled in; VisionIOLimelight doesn't read the rest.
-      values[11 + 7 * i] = visible.get(i).id;
-      values[11 + 7 * i + 4] = visible.get(i).distance;
-    }
-    return values;
   }
 
-  /** Forgets the pose history, for when the simulated robot is teleported. */
-  public void clearHistory() {
-    truePoseHistory.clear();
+  /** Farther or more turned than a robot can manage in one sim step (a few millimeters). */
+  private static boolean isTeleport(Pose2d before, Pose2d after) {
+    return before.getTranslation().getDistance(after.getTranslation()) > 0.25
+        || Math.abs(after.getRotation().minus(before.getRotation()).getRadians()) > 0.5;
   }
 }

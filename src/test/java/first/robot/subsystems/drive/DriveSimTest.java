@@ -1,7 +1,6 @@
 package first.robot.subsystems.drive;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.ctre.phoenix6.SignalLogger;
@@ -30,6 +29,7 @@ import org.wpilib.math.geometry.Rotation2d;
 import org.wpilib.math.geometry.Transform2d;
 import org.wpilib.math.geometry.Translation2d;
 import org.wpilib.math.kinematics.ChassisVelocities;
+import org.wpilib.math.util.MathUtil;
 import org.wpilib.simulation.DriverStationSim;
 
 /**
@@ -42,7 +42,6 @@ class DriveSimTest {
   private static SimWorld simWorld;
   private static SwerveDriveSim driveSim;
   private static Vision vision;
-  private static final List<LimelightSim> limelightSims = new ArrayList<>();
   private static Drive drive;
 
   @BeforeAll
@@ -63,9 +62,8 @@ class DriveSimTest {
     // the other tests are looking for.
     var visionIOs = new VisionIO[VisionConstants.CAMERA_NAMES.length];
     for (int i = 0; i < visionIOs.length; i++) {
-      var limelightSim = new LimelightSim(VisionConstants.CAMERA_NAMES[i], driveSim::getTruePose);
-      simWorld.add("Camera" + i, limelightSim);
-      limelightSims.add(limelightSim);
+      simWorld.add(
+          "Camera" + i, new LimelightSim(VisionConstants.CAMERA_NAMES[i], driveSim::getTruePose));
       visionIOs[i] =
           new VisionIOLimelight(
               VisionConstants.CAMERA_NAMES[i],
@@ -118,6 +116,41 @@ class DriveSimTest {
     }
     scheduler.cancel(command);
     scheduler.run();
+  }
+
+  @Test
+  void robotRelativeDrivesAlongTheRobotsOwnForward() throws InterruptedException {
+    // Facing 90 degrees (field +y), stick full forward.
+    var start = new Pose2d(3.0, 3.0, Rotation2d.CCW_90DEG);
+    driveSim.resetTruePose(start);
+    drive.setPose(start);
+    runCommand(
+        DriveCommands.robotRelativeDrive(
+            drive, () -> 1.0, () -> 0.0, () -> 0.0, () -> Double.POSITIVE_INFINITY),
+        1.0);
+
+    var moved = drive.getPose().getTranslation().minus(start.getTranslation());
+    System.out.println("SIMTEST robot-relative moved " + moved);
+    // Along the robot's forward (field +y), not the field's +x.
+    assertTrue(moved.getY() > 0.5, "moved along the robot's forward");
+    assertEquals(0.0, moved.getX(), 0.1, "no movement along field x");
+  }
+
+  @Test
+  void xLockHoldsUnderTheJoystickCommand() throws InterruptedException {
+    // Press X while moving, with the sticks centered.
+    run(new ChassisVelocities(1.0, 0.0, 0.0), 1.0);
+    runCommand(DriveCommands.xLock(drive, () -> 0.0, () -> 0.0, () -> 0.0), 1.0);
+
+    var measured = drive.getModuleVelocities();
+    for (int i = 0; i < 4; i++) {
+      var x = DriveConstants.MODULE_TRANSLATIONS[i].getAngle().orElseThrow();
+      // A wheel pointing the opposite way is still in the X.
+      double offDegrees =
+          Math.abs(MathUtil.inputModulus(measured[i].angle.minus(x).getDegrees(), -90, 90));
+      System.out.println("SIMTEST x-lock module " + i + " off by " + offDegrees + " deg");
+      assertEquals(0.0, offDegrees, 3.0, "module " + i + " in the X");
+    }
   }
 
   @Test
@@ -204,11 +237,8 @@ class DriveSimTest {
     assertEquals(0.0, pose.getY(), 0.1, "no sideways drift");
   }
 
-  @Test
-  void visionCorrectsWrongOdometry() throws InterruptedException {
-    // Stand 2.5 m in front of the first tag that leaves room on the field, facing it, so the
-    // front camera has a clear view.
-    Pose2d truth = null;
+  /** 2.5 m in front of the first tag that leaves room on the field, facing it. */
+  private static Pose2d inFrontOfATag() {
     for (var tag : FieldGeometry.FIELD.getTags()) {
       var candidate =
           tag.getPose().toPose2d().transformBy(new Transform2d(2.5, 0.0, Rotation2d.k180deg));
@@ -217,41 +247,69 @@ class DriveSimTest {
           && candidate.getY() > 1.0
           && candidate.getY() < FieldGeometry.FIELD.getFieldWidth() - 1.0
           && tag.getPose().getZ() < 1.5) {
-        truth = candidate;
-        break;
+        return candidate;
       }
     }
-    assertNotNull(truth, "no tag with room in front of it");
+    throw new AssertionError("no tag with room in front of it");
+  }
 
-    driveSim.resetTruePose(truth);
-    limelightSims.forEach(LimelightSim::clearHistory);
-    // Odometry starts a meter off; only vision can fix that.
-    drive.setPose(
-        new Pose2d(truth.getTranslation().plus(new Translation2d(0.8, -0.6)), truth.getRotation()));
-
-    // Each camera frame is a few centimeters off (that's the simulated noise), and the estimate
-    // follows the frames closely, so it jitters too. So the test judges it the way a person would
-    // by
-    // eye: the average error over the last half second.
-    double errorSum = 0.0;
-    int errorSamples = 0;
+  /**
+   * Holds still with vision running, then returns the average position error (meters) and heading
+   * error (degrees) over the last half second. Each camera frame is a little off (the simulated
+   * noise), and the estimate follows the frames closely, so it jitters too. Averaging judges it the
+   * way a person would by eye.
+   */
+  private static double[] averageErrorWithVision(Pose2d truth, double seconds)
+      throws InterruptedException {
+    double positionSum = 0.0;
+    double headingSum = 0.0;
+    int samples = 0;
     long start = System.nanoTime();
-    while (System.nanoTime() - start < 2_500_000_000L) {
+    long end = start + (long) (seconds * 1e9);
+    while (System.nanoTime() < end) {
       DriverStationSim.notifyNewData();
       drive.periodic();
       vision.periodic();
       drive.runVelocity(new ChassisVelocities());
-      if (System.nanoTime() - start > 2_000_000_000L) {
-        errorSum += drive.getPose().getTranslation().getDistance(truth.getTranslation());
-        errorSamples++;
+      if (end - System.nanoTime() < 500_000_000L) {
+        positionSum += drive.getPose().getTranslation().getDistance(truth.getTranslation());
+        headingSum += Math.abs(drive.getRotation().minus(truth.getRotation()).getDegrees());
+        samples++;
       }
       Thread.sleep(20);
     }
+    return new double[] {positionSum / samples, headingSum / samples};
+  }
 
-    double averageError = errorSum / errorSamples;
+  @Test
+  void visionCorrectsWrongOdometry() throws InterruptedException {
+    var truth = inFrontOfATag();
+    driveSim.resetTruePose(truth);
+    // Odometry starts a meter off; only vision can fix that.
+    drive.setPose(
+        new Pose2d(truth.getTranslation().plus(new Translation2d(0.8, -0.6)), truth.getRotation()));
+
+    double averageError = averageErrorWithVision(truth, 2.5)[0];
     System.out.printf(
         "SIMTEST vision: started 1.00 m off, averaged %.3f m off after 2 s%n", averageError);
     assertEquals(0.0, averageError, 0.08, "average pose error after vision, meters");
+  }
+
+  @Test
+  void visionFixesAWrongHeading() throws InterruptedException {
+    var truth = inFrontOfATag();
+    driveSim.resetTruePose(truth);
+    // Odometry thinks the robot is turned 28 degrees from where it really faces, as after a
+    // crooked start. MegaTag2 can't fix that (and is thrown off by it); MegaTag1 has to.
+    drive.setPose(
+        new Pose2d(truth.getTranslation(), truth.getRotation().plus(Rotation2d.fromDegrees(28.0))));
+
+    var errors = averageErrorWithVision(truth, 3.0);
+    System.out.printf(
+        "SIMTEST vision heading: started 28 deg off, averaged %.2f deg and %.3f m off after 2.5 s%n",
+        errors[1], errors[0]);
+    assertEquals(0.0, errors[1], 2.0, "average heading error after vision, degrees");
+    assertEquals(0.0, errors[0], 0.1, "average position error after vision, meters");
   }
 
   @Test

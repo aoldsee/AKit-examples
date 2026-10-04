@@ -80,6 +80,9 @@ class SwerveModuleSim {
     steerSim.Orientation = PhoenixSimUtil.orientation(module.steerMotorDirection());
     encoderSim.Orientation = PhoenixSimUtil.orientation(module.encoderDirection());
     encoderSim.SensorOffset = module.encoderOffsetRotations();
+    // There's no separate FOC motor type: Phoenix's sim switches to the FOC motor's stronger curve
+    // whenever a request enables FOC, which every request in ModuleIOTalonFX does. So the current
+    // it reports matches the FOC specs the push here is built from.
     driveSim.setMotorType(MotorType.KrakenX60);
     steerSim.setMotorType(MotorType.KrakenX44);
 

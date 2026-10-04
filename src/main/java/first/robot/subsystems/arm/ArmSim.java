@@ -48,6 +48,7 @@ public class ArmSim implements SimulatedMechanism {
     this.motorSim = motorSim;
     this.encoderSim = encoderSim;
     motorSim.Orientation = PhoenixSimUtil.orientation(ArmConstants.MOTOR_DIRECTION);
+    // Phoenix's sim uses the FOC motor curve because ArmIOTalonFX's requests enable FOC.
     motorSim.setMotorType(MotorType.KrakenX60);
     encoderSim.Orientation = PhoenixSimUtil.orientation(ArmConstants.ENCODER_DIRECTION);
     encoderSim.SensorOffset = ArmConstants.ENCODER_OFFSET;

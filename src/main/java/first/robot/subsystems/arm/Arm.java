@@ -112,16 +112,18 @@ public class Arm implements Mechanism {
    * through the default {@link #hold} command.
    */
   public Command goTo(double angleRad) {
+    // Never past the soft limits. Clamped here, before the name is built, so the name shows where
+    // the arm will really go.
+    double clampedRad =
+        Math.clamp(angleRad, ArmConstants.SOFT_MIN_ANGLE_RAD, ArmConstants.SOFT_MAX_ANGLE_RAD);
     return run(coroutine -> {
-          goalRad =
-              Math.clamp(
-                  angleRad, ArmConstants.SOFT_MIN_ANGLE_RAD, ArmConstants.SOFT_MAX_ANGLE_RAD);
+          goalRad = clampedRad;
           while (!isAtGoal()) {
             io.setPosition(goalRad);
             coroutine.yield();
           }
         })
-        .named("Arm.GoTo[" + Math.round(Units.radiansToDegrees(angleRad)) + " deg]");
+        .named("Arm.GoTo[" + Math.round(Units.radiansToDegrees(clampedRad)) + " deg]");
   }
 
   /** Keeps commanding the current goal. Never finishes; meant as the default command. */

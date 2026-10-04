@@ -285,8 +285,14 @@ public final class DriveConstants {
    * <p>At 0.002 m a typical frame moves it about 20% of the way. At 90 frames a second that still
    * fixes a real error in well under a second, while averaging out most of the noise. A camera
    * running at 30 fps would need about 3 times this value to correct as quickly.
+   *
+   * <p>The heading works the same way against MegaTag1's heading (see
+   * VisionConstants.ANGULAR_STD_DEV_BASELINE). It's set lower, 0.001 rad, because the gyro is very
+   * good from moment to moment and MegaTag1's heading is noisy: at 0.002 the heading jittered
+   * enough to shake MegaTag2's positions by a couple of centimeters. At 0.001 a typical frame moves
+   * the heading about 3% of the way, which still fixes a wrong heading within a second or two.
    */
-  public static final Matrix<N3, N1> ODOMETRY_STD_DEVS = VecBuilder.fill(0.002, 0.002, 0.002);
+  public static final Matrix<N3, N1> ODOMETRY_STD_DEVS = VecBuilder.fill(0.002, 0.002, 0.001);
 
   /** Robot-relative module positions, meters. */
   public static final Translation2d[] MODULE_TRANSLATIONS = moduleTranslations();

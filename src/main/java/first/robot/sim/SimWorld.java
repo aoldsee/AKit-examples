@@ -21,25 +21,27 @@ import org.wpilib.util.Alert.Level;
  *
  * <p>It also plays the battery. Each step, every mechanism reports the current it drew, and the
  * total sets how far the battery voltage sags (see {@link Battery}). The next step every device
- * runs on that lower voltage, so hard acceleration really does leave less for everything else. The
- * battery also runs down as charge is used, so the same move sags it further late in a long
- * session. The voltage is published as the robot's battery voltage, so AdvantageKit logs it like it
- * would on a real robot.
+ * runs on that lower voltage, so hard acceleration really does leave less for everything else. A
+ * battery given a capacity (see {@link Battery}) also runs down as charge is used, so the same move
+ * sags it further late in a long session; RobotContainer's never runs down. The voltage is
+ * published as the robot's battery voltage, so AdvantageKit logs it like it would on a real robot.
  *
  * <p>Add every mechanism, then call {@link #start()} once.
  */
 public final class SimWorld implements AutoCloseable {
   // 250 Hz matches the drive's odometry rate, so every odometry sample sees fresh physics.
   private static final double PERIOD_SECS = 0.004;
-  // The models are stepped with simple "speed times time" math, which goes unstable if one step is
-  // too long (the drive's tire grip is the touchiest, at about 30 ms). A late step is split into
-  // pieces no longer than this.
+  // The models are stepped with simple "speed times time" math (Euler's method). Something that
+  // settles on its own with time constant tau goes unstable under that math once a step is longer
+  // than 2 * tau. The touchiest here is the drive's tire grip while spinning, which settles in
+  // about 15 ms, so steps must stay under about 30 ms. A late step is split into pieces no longer
+  // than this.
   private static final double MAX_STEP_SECS = 0.005;
   // A pause longer than this (a debugger breakpoint, a long garbage collection) is skipped instead
   // of simulated: the robot freezes for the pause, like the code did.
   private static final double MAX_CATCH_UP_SECS = 0.1;
-  // Fraction of the way to the new battery voltage per step: about a 15 ms time constant.
-  private static final double VOLTAGE_RESPONSE = 0.25;
+  // How quickly the battery voltage settles on its new value: about 63% of the way in this long.
+  private static final double VOLTAGE_TIME_CONSTANT_SECS = 0.015;
 
   private record Entry(String name, SimulatedMechanism mechanism) {}
 
@@ -127,7 +129,9 @@ public final class SimWorld implements AutoCloseable {
     // math stable, not physics. Its side effect: spikes shorter than about 15 ms come out smaller
     // than they really are, so read sim brownout margins as a little optimistic.
     double target = battery.getLoadedVoltage(total);
-    batteryVolts += VOLTAGE_RESPONSE * (target - batteryVolts);
+    // The fraction moved depends on the step's length, so the settling time is the same however
+    // the steps are split.
+    batteryVolts += (1.0 - Math.exp(-dt / VOLTAGE_TIME_CONSTANT_SECS)) * (target - batteryVolts);
     RoboRioSim.setVInVoltage(batteryVolts);
 
     // The simulator never browns out on its own, so track it here with the same thresholds and

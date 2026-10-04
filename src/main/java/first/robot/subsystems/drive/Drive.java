@@ -25,10 +25,11 @@ import org.wpilib.util.Alert.Level;
  * Swerve drive with high-rate odometry.
  *
  * <p>Odometry works out where the robot is by adding up small wheel movements. The main loop runs
- * every 20 ms, and at 4.5 m/s the robot covers 9 cm in that time. A lot can change in 9 cm: the
- * wheels can turn to a new angle partway through, and readings taken at slightly different times
- * don't quite agree. So {@link PhoenixOdometryThread} samples the wheels and gyro together every 4
- * ms instead, and each loop this class replays every sample it collected, oldest first.
+ * every 20 ms, and at its top speed of about 5 m/s the robot covers 10 cm in that time. A lot can
+ * change in 10 cm: the wheels can turn to a new angle partway through, and readings taken at
+ * slightly different times don't quite agree. So {@link PhoenixOdometryThread} samples the wheels
+ * and gyro together every 4 ms instead, and each loop this class replays every sample it collected,
+ * oldest first.
  *
  * <p>The samples feed a pose estimator, which blends wheel odometry with vision. Every sample and
  * every camera frame carries the time it was measured, so a camera frame that arrives 50 ms late
@@ -59,7 +60,8 @@ public class Drive implements Mechanism {
   private final SwerveDriveKinematics kinematics =
       new SwerveDriveKinematics(DriveConstants.MODULE_TRANSLATIONS);
   // Integrated separately from the pose estimator so a gyro dropout falls back to wheel-derived
-  // heading without a jump.
+  // heading without a jump. When the gyro comes back, the heading snaps to its reading, so any
+  // drift in the wheel heading during the outage shows up then, as one jump.
   private Rotation2d rawGyroRotation = Rotation2d.ZERO;
   private final SwerveModulePosition[] lastModulePositions =
       new SwerveModulePosition[] {
@@ -118,9 +120,20 @@ public class Drive implements Mechanism {
     }
 
     // Every module and the gyro are sampled together by the odometry thread, so module 0's
-    // timestamps index all of them. Each pass through this loop is one 4 ms snapshot.
+    // timestamps index all of them. Each pass through this loop is one snapshot (4 ms apart on CAN
+    // FD).
     double[] sampleTimestamps = modules[0].getOdometryTimestamps();
-    for (int i = 0; i < sampleTimestamps.length; i++) {
+    // The arrays are normally all the same length, but a dropped frame can leave one a sample
+    // short. Use only the samples every array has. Skipping one is harmless: each sample is a
+    // total position, so the next one still lands in the right place.
+    int sampleCount = sampleTimestamps.length;
+    for (var module : modules) {
+      sampleCount = Math.min(sampleCount, module.getOdometryPositions().length);
+    }
+    if (gyroInputs.connected) {
+      sampleCount = Math.min(sampleCount, gyroInputs.odometryYawPositions.length);
+    }
+    for (int i = 0; i < sampleCount; i++) {
       SwerveModulePosition[] modulePositions = new SwerveModulePosition[4];
       SwerveModulePosition[] moduleDeltas = new SwerveModulePosition[4];
       for (int m = 0; m < 4; m++) {

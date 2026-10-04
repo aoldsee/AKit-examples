@@ -37,7 +37,9 @@ public class Vision {
     NO_TAGS,
     OFF_FIELD,
     TOO_FAR,
-    SPINNING
+    SPINNING,
+    // MegaTag1 only: one tag can't give a trustworthy heading.
+    ONE_TAG
   }
 
   private final VisionConsumer consumer;
@@ -106,22 +108,39 @@ public class Vision {
 
         // A standard deviation is roughly how far off this estimate might be. The bigger it is,
         // the less the pose estimator moves toward it. Error grows with distance squared and
-        // shrinks with more tags in view. Spinning adds the stale-heading error on top (see
-        // VisionConstants.MEGATAG2_HEADING_DELAY_SECS).
+        // shrinks with more tags in view. Dividing by the tag count is a rule of thumb, not
+        // derived: averaging independent errors would only divide by its square root, but tags
+        // spread across the image also pin down the angle better.
         double distance = observation.averageTagDistance();
-        double spinError =
+        double scale =
             distance
-                * Math.abs(yawVelocityRadPerSec.getAsDouble())
-                * VisionConstants.MEGATAG2_HEADING_DELAY_SECS;
-        double linearStdDev =
-            (VisionConstants.LINEAR_STD_DEV_BASELINE * distance * distance / observation.tagCount()
-                    + spinError)
+                * distance
+                / observation.tagCount()
                 * VisionConstants.CAMERA_STD_DEV_FACTORS[camera];
-        // Infinite heading uncertainty: MegaTag2 got its heading from us, so it can't correct it.
-        consumer.accept(
-            pose.toPose2d(),
-            observation.timestamp(),
-            VecBuilder.fill(linearStdDev, linearStdDev, Double.POSITIVE_INFINITY));
+        // Each solver gets trusted for what it's good at. An infinite standard deviation means
+        // "ignore this part".
+        var stdDevs =
+            switch (observation.type()) {
+              // Heading only. MegaTag2's position is much steadier, so MegaTag1's is ignored.
+              case MEGATAG_1 ->
+                  VecBuilder.fill(
+                      Double.POSITIVE_INFINITY,
+                      Double.POSITIVE_INFINITY,
+                      VisionConstants.ANGULAR_STD_DEV_BASELINE * scale);
+              // Position only: its heading came from the robot, so it can't correct it. Spinning
+              // adds the heading-mismatch error on top (see
+              // VisionConstants.MEGATAG2_HEADING_DELAY_SECS).
+              case MEGATAG_2 -> {
+                double spinError =
+                    distance
+                        * Math.abs(yawVelocityRadPerSec.getAsDouble())
+                        * VisionConstants.MEGATAG2_HEADING_DELAY_SECS
+                        * VisionConstants.CAMERA_STD_DEV_FACTORS[camera];
+                double linear = VisionConstants.LINEAR_STD_DEV_BASELINE * scale + spinError;
+                yield VecBuilder.fill(linear, linear, Double.POSITIVE_INFINITY);
+              }
+            };
+        consumer.accept(pose.toPose2d(), observation.timestamp(), stdDevs);
       }
 
       String prefix = "Vision/Camera" + camera;
@@ -141,9 +160,10 @@ public class Vision {
   /**
    * Why an observation can't be trusted, or null if it can. Package-private for the unit tests.
    *
-   * <p>The first two catch estimates that are plainly wrong. The last two catch estimates that
-   * might look fine but are likely off: far tags are a few pixels wide, and MegaTag2 solves using
-   * the heading we sent it, which is already stale while the robot spins quickly.
+   * <p>The first two catch estimates that are plainly wrong. The rest catch estimates that might
+   * look fine but are likely off: far tags are a few pixels wide, MegaTag2 solves using the heading
+   * the robot sent it, which doesn't match the moment of the picture while the robot spins quickly,
+   * and MegaTag1's heading from a single tag can flip.
    */
   static RejectReason rejectReason(
       VisionIO.PoseObservation observation, double yawVelocityRadPerSec) {
@@ -164,6 +184,10 @@ public class Vision {
     }
     if (Math.abs(yawVelocityRadPerSec) > VisionConstants.MAX_YAW_VELOCITY_RAD_PER_SEC) {
       return RejectReason.SPINNING;
+    }
+    if (observation.type() == VisionIO.ObservationType.MEGATAG_1
+        && observation.tagCount() < VisionConstants.MEGATAG_1_MIN_TAGS) {
+      return RejectReason.ONE_TAG;
     }
     return null;
   }

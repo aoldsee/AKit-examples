@@ -11,7 +11,6 @@ import java.util.function.DoubleSupplier;
 import org.wpilib.command3.Command;
 import org.wpilib.command3.button.CommandGamepad;
 import org.wpilib.driverstation.GenericHID.RumbleType;
-import org.wpilib.math.geometry.Pose2d;
 import org.wpilib.units.Units;
 
 /** Every gamepad button and stick, and what it does. */
@@ -52,29 +51,6 @@ public final class Controls {
     driver.dpadRight().onTrue(arm.goTo(ArmConstants.HORIZONTAL_RAD));
     driver.dpadDown().onTrue(arm.goTo(ArmConstants.STOWED_RAD));
 
-    // One-shot drive buttons. Each command does its work once and finishes.
-    // This command finishes right away, but the X stays. The joystick command takes over and, with
-    // the sticks centered, asks for zero speed, and a wheel asked for zero speed keeps pointing
-    // where it was (see Drive.stopWithX). Moving the sticks turns the wheels again.
-    driver.faceLeft().onTrue(drive.run(coroutine -> drive.stopWithX()).named("Drive.XLock"));
-    // Tell odometry the robot is facing away from the driver, keeping its position. Only odometry:
-    // the robot hasn't moved, so in sim the simulated robot stays put too.
-    driver
-        .faceRight()
-        .onTrue(
-            drive
-                .run(
-                    coroutine ->
-                        drive.setPose(
-                            new Pose2d(
-                                drive.getPose().getTranslation(), FieldGeometry.downfield())))
-                .named("Drive.ResetHeading"));
-
-    // Joystick driving. A pushed-forward stick reads negative y, and pushed-left reads negative x.
-    // On the field, +x is away from the driver and +y is to the left, so both get flipped. This
-    // flip is only about the stick's sign. Flipping for the red alliance is a separate step, in
-    // DriveCommands.driverRelativeHeading.
-    //
     // The arm limits the driving. Away from its hard stops, only its motor holds the arm up, so a
     // hard start or stop swings it. So: near a stop, no extra limit (infinity); raised, a gentler
     // acceleration. It's a supplier (a function), not a plain number, so the drive commands call
@@ -83,6 +59,11 @@ public final class Controls {
     DoubleSupplier driveAccelCap =
         () -> arm.isNearHardStop() ? Double.POSITIVE_INFINITY : DriveConstants.ARM_RAISED_MAX_ACCEL;
 
+    // Joystick driving. +x on the field is away from the driver and +y is to the left. A stick's
+    // up-down axis is its y, so the left stick's y feeds the field's x, and its x feeds the
+    // field's y. Pushed forward and pushed left both read negative, so both get flipped. This flip
+    // is only about the stick; flipping for the red alliance is a separate step, in
+    // DriveCommands.driverRelativeHeading.
     drive.setDefaultCommand(
         DriveCommands.joystickDrive(
             drive,
@@ -90,6 +71,28 @@ public final class Controls {
             () -> -driver.getLeftX(),
             () -> -driver.getRightX(),
             driveAccelCap));
+
+    // Lock the wheels in an X until the driver moves a stick, then joystick driving takes over.
+    driver
+        .faceLeft()
+        .onTrue(
+            DriveCommands.xLock(
+                drive,
+                () -> -driver.getLeftY(),
+                () -> -driver.getLeftX(),
+                () -> -driver.getRightX()));
+
+    // Hold to drive robot-relative: stick forward is the robot's own forward instead of away from
+    // the driver. Try spinning the robot to face the driver, then driving with and without it.
+    driver
+        .faceRight()
+        .whileTrue(
+            DriveCommands.robotRelativeDrive(
+                drive,
+                () -> -driver.getLeftY(),
+                () -> -driver.getLeftX(),
+                () -> -driver.getRightX(),
+                driveAccelCap));
 
     // Hold faceDown (A on Xbox) to keep the robot facing downfield while still driving with the
     // left stick.

@@ -1,7 +1,5 @@
 # Commands v3
 
-How commands work in this project: what a command is, how it pauses between loops, how commands share mechanisms, and where they live in the code.
-
 A command is a small piece of code that runs a little each loop. The important pieces:
 
 - `mechanism.runRepeatedly(() -> ...)` runs the lambda every loop, forever.
@@ -21,12 +19,15 @@ A command is a small piece of code that runs a little each loop. The important p
   A loop like this doesn't freeze the robot: `yield()` hands control back until the next loop. Even `while (true)` is fine (the joystick drive command does it); that command just runs until it's canceled.
 - **Requirements**: a command made with `mechanism.run(...)` *requires* that mechanism. Only one command can use a mechanism at a time, so starting a new one cancels whatever was using it. `Command.noRequirements(...)` makes a command that only coordinates other commands, like an auto routine. If an auto required the drive itself, starting the drive command inside it would cancel the auto.
 - Code inside the `coroutine -> { ... }` lambda runs each time the command starts. Code in the method around it, before the `return`, runs once, when the command is built (usually at startup, in `Controls`). That's why `DriveCommands` creates its controllers outside the lambda and resets them inside: one controller, a fresh start each time the button is pressed.
-- A `run(coroutine -> ...)` with no loop does its work once and finishes. The X-lock and heading-reset buttons work that way.
-- Three ways to pause inside a command: `coroutine.yield()` waits one loop, `coroutine.wait(time)` waits that long, and `coroutine.await(otherCommand)` runs another command and waits for it to finish.
+- A `run(coroutine -> ...)` with no loop does its work once and finishes. The "None" auto in `Autos.java` works that way.
+- Three ways to pause inside a command:
+  - `coroutine.yield()` waits one loop.
+  - `coroutine.wait(time)` waits an amount of **time**, like `wait(Units.Seconds.of(1.0))`.
+  - `coroutine.await(otherCommand)` waits for a **command**: it starts `otherCommand` and pauses until it finishes. The names are one letter apart, so check which one is meant.
 - `coroutine.awaitAll(a, b)` runs several commands at once, as long as they need different mechanisms. The routines in `autos/Autos.java` show both.
 - A **default command** runs whenever no other command requires that mechanism. The drive's default is joystick driving; the arm's is "hold the last goal angle."
 - A `Trigger` turns a condition (a button, or any true/false check) into something commands can be bound to. Every gamepad button is a Trigger, and `RobotContainer` makes one from a dashboard value for the calibration button. `onTrue` starts a command once when the condition becomes true and lets it finish. `whileTrue` runs it while the condition holds and cancels it when it stops. Triggers combine with `.and(...)` and `.or(...)`.
-- A command can chain others. Holding RB runs a small routine in `Controls`: `await` the alignment, then `await` a rumble, so the controller buzzes exactly when the robot arrives.
+- A command can chain others. Holding RB runs a small routine in `Controls`: `await` the alignment, then `await` a rumble, so the controller buzzes exactly when the robot arrives. Canceling a command also cancels whatever it's awaiting, so letting go of RB stops the alignment too, not just the routine around it.
 
 Every command has a name (`.named(...)`), and those names appear in the logs.
 

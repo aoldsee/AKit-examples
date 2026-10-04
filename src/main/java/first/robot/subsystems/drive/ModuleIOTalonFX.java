@@ -55,7 +55,12 @@ public class ModuleIOTalonFX implements ModuleIO {
       new VelocityTorqueCurrentFOC(0.0);
 
   // Wheel rotations per module rotation. The MK5n bevel drives the wheel when the module steers,
-  // so a pure steer reads as drive travel unless this is backed out.
+  // so a pure steer reads as drive travel unless this is backed out. One ratio, same sign, for
+  // every module, in the drive motor's configured direction: a module's invert flips both the
+  // drive reading and the coupled motion, so they still cancel. CTRE's own swerve library does the
+  // same. The sim builds the coupling from this same convention, so only a real robot can confirm
+  // it: with the robot on blocks, steer a module in place and check its drive position doesn't
+  // move.
   private final double couplingWheelRotPerTurnRot;
 
   private final Queue<Double> timestampQueue;

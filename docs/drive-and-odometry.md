@@ -1,7 +1,5 @@
 # The drive and odometry
 
-How a stick push becomes four wheel commands, and how the robot works out where it is from what the wheels and gyro report. It assumes the IO-layer idea from [How the code works](how-it-works.md) and the words in the [glossary](glossary.md). The vendor documentation linked at the end goes deeper on each piece.
-
 WPILib 2027 renamed a few classes that most guides still use the old names for: `ChassisSpeeds` is now `ChassisVelocities`, and `SwerveModuleState` is now `SwerveModuleVelocity`. They work the same way.
 
 ## The pieces
@@ -26,7 +24,7 @@ All in `subsystems/drive/`:
 
 1. **Deadband and squaring.** Stick movement smaller than the deadband counts as zero, and the rest is squared, so small pushes give fine control and a full push still gives full speed. The deadband applies to the stick's distance from center rather than to each axis, so diagonals don't snap to straight lines.
 2. **Rate limiting.** `VectorRateLimiter` caps how fast the requested velocity can change, with a separate, higher limit for slowing down. It limits the velocity as one vector, so a diagonal start stays diagonal.
-3. **Field-relative conversion.** The sticks ask for field directions ("away from the driver"), but the wheels need the robot's own directions. `ChassisVelocities.toRobotRelative(heading)` rotates the request by the robot's heading. This is the one line that makes driving field-relative, and it's why a wrong heading makes the robot drive the wrong way.
+3. **Field-relative conversion.** The sticks ask for field directions ("away from the driver"), but the wheels need the robot's own directions. `ChassisVelocities.toRobotRelative(heading)` rotates the request by the robot's heading. This is the one line that makes driving field-relative, and it's why a wrong heading makes the robot drive the wrong way. Holding B runs `robotRelativeDrive`, the same command without that line, so the difference can be felt on the sticks.
 
 ### Kinematics
 
@@ -34,7 +32,7 @@ All in `subsystems/drive/`:
 
 1. **Discretize.** The command applies for a whole 20 ms loop, but the robot turns during that time, so a request to drive straight while spinning would come out as a curve. `ChassisVelocities.discretize` adjusts the request so the motion over the loop comes out as asked.
 2. **Inverse kinematics.** `SwerveDriveKinematics.toSwerveModuleVelocities` gives each module a speed and an angle. Each module's velocity is the robot's velocity plus the extra speed from spinning, which is faster the farther the module is from the center. That's why the kinematics needs `MODULE_TRANSLATIONS`, each module's position on the robot.
-3. **Desaturate.** If any wheel would need more than top speed, `desaturateWheelVelocities` slows every wheel by the same factor, so the robot keeps the requested direction and spin, only slower.![alt text](image.png)
+3. **Desaturate.** If any wheel would need more than top speed, `desaturateWheelVelocities` slows every wheel by the same factor, so the robot keeps the requested direction and spin, only slower.
 
 ### Per-module optimization
 
@@ -60,11 +58,11 @@ The Talons can also run in torque-current mode (`TorqueCurrentFOC`), which sets 
 
 Each module reports a `SwerveModulePosition`: the total distance its wheel has rolled, and which way it points. Between two readings, each wheel's change in distance, in its direction, says how that corner of the robot moved. Forward kinematics combines the four into how the whole robot moved (a `Twist2d`), and adding up those small moves gives the pose.
 
-Heading comes from the gyro rather than the wheels. Wheels scrub sideways during turns, so heading from wheels drifts quickly; a gyro drifts very little. If the gyro disconnects, `Drive.periodic` falls back to the heading from the wheels, adding to the last good heading so there's no jump.
+Heading comes from the gyro rather than the wheels. Wheels scrub sideways during turns, so heading from wheels drifts quickly; a gyro drifts very little. If the gyro disconnects, `Drive.periodic` falls back to the heading from the wheels, adding to the last good heading so there's no jump. When the gyro comes back, the heading snaps to its reading, so any drift in the wheel heading during the outage shows up then, as one jump. A single dropped frame doesn't count as a disconnect.
 
 ### Why a separate thread
 
-At 4.5 m/s the robot covers 9 cm per 20 ms loop, and modules can change angle partway through. Adding up one reading per loop treats each 9 cm as a straight line at one wheel angle, and readings fetched at slightly different moments don't quite agree. Both errors add up over a match.
+At its top speed of about 5 m/s the robot covers 10 cm per 20 ms loop, and modules can change angle partway through. Adding up one reading per loop treats each 10 cm as a straight line at one wheel angle, and readings fetched at slightly different moments don't quite agree. Both errors add up over a match.
 
 So `PhoenixOdometryThread` samples every wheel and the gyro together at 250 Hz (100 Hz on a CAN bus that isn't CAN FD):
 
@@ -81,9 +79,30 @@ Because the samples arrive through the IO layer's inputs, AdvantageKit logs ever
 
 Instead of plain odometry, `Drive` uses `SwerveDrivePoseEstimator`, which does the same adding up and also takes in vision. Each odometry sample goes in with its own timestamp through `updateWithTime`. The estimator keeps a short history of recent poses, so when a camera result arrives, stamped with when the picture was taken, `addVisionMeasurement` corrects the pose from that moment and replays the odometry since then on top.
 
-How far it moves toward each camera result depends on standard deviations: `ODOMETRY_STD_DEVS` for how much the wheels can be trusted, and one per camera result for vision (worked out in `Vision`). The smaller one wins more of the blend. MegaTag2 vision gets its heading from the gyro, so it's given an infinite heading standard deviation: it corrects position only, never heading.
+How far it moves toward each camera result depends on standard deviations: `ODOMETRY_STD_DEVS` (σo) for how much the wheels can be trusted, and one per camera result for vision (σv, worked out in `Vision`). Each frame moves the estimate this fraction of the way toward the camera's answer:
 
-`Drive.setPose` resets the estimator to a known pose, such as a starting position or a new heading from the driver. It doesn't move the gyro; the estimator just records the offset between the gyro's reading and the new heading.
+```
+k = σo / (σo + σv)
+```
+
+That's WPILib's simple rule rather than a full Kalman filter: σo is fixed, so odometry doesn't get less trusted the longer the robot drives. Some numbers from this robot:
+
+- A typical frame (5 tags at 4 m) has σv of about 0.008 m. With σo = 0.002 m, k = 0.002 / 0.010 = 20%.
+- After n frames, (1 − k)ⁿ of an error is left. At 90 frames a second, a real error (a bump, a slipping wheel) is down to 13% in 0.1 s (9 frames), while each frame's noise only nudges the estimate.
+- k is the same however often frames arrive, so σo has to be picked together with the frame rate. A 30 fps camera would need about 3 times the σo to correct as quickly. Two cameras that both see tags send twice the frames, so they correct twice as fast.
+- With WPILib's default σo of 0.1 m, k would be over 90%, and the pose would jump with every frame's noise.
+
+Vision also trusts a frame less while the robot spins (see `VisionConstants.MEGATAG2_HEADING_DELAY_SECS`).
+#### Two solvers: one for position, one for heading
+
+The Limelight runs two solvers on every frame, and `Vision` uses each for what it's good at, by giving the other parts an infinite standard deviation ("ignore this"):
+
+- **MegaTag2** solves position using the heading the robot sends it. It's much steadier than solving everything from the image, so it supplies position. It can't correct heading, since the heading came from the robot.
+- **MegaTag1** solves position *and* heading from the image alone. It's noisier, so its position is ignored, but its heading is independent of the gyro's, so it supplies heading. It needs at least two tags in view: from a single flat tag, two quite different camera angles can look almost the same, so the heading can flip.
+
+Heading matters for position too. MegaTag2 swings its answer around the tags by however far off the heading is, so a heading 28° wrong puts MegaTag2's position a meter or more off, and the estimator follows. Without MegaTag1, nothing would ever fix that: a robot set down crooked at the start, or gyro drift, would stay wrong for the whole match. With it, each frame moves the heading about 3% of the way (`ANGULAR_STD_DEV_BASELINE` in `VisionConstants`, against the heading part of `ODOMETRY_STD_DEVS`, which is set lower than the position parts because the gyro is so steady), so the gyro still sets the heading from moment to moment, but a wrong heading heals within a second or two of seeing tags. `DriveSimTest.visionFixesAWrongHeading` shows it.
+
+`Drive.setPose` resets the estimator to a known pose, such as a starting position. It doesn't move the gyro; the estimator just records the offset between the gyro's reading and the new heading.
 
 ## Where it goes wrong
 
